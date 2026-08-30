@@ -1,0 +1,7 @@
+DEMO ONLY — SYNTHETIC DATA
+Patient: Demo Patient
+Date: 29/08/2026
+Hemoglobin: 10.2 g/dL
+Glucose: 148 mg/dL
+Medication: Metformin 500 mg
+History: Diabetes
