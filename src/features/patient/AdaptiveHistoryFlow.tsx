@@ -94,8 +94,6 @@ export default function AdaptiveHistoryFlow() {
   const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
 const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
-  const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
-const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [listening, setListening] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -492,7 +490,7 @@ setEvidence([
     {currentAdaptiveQuestion.type === "single" &&
       currentAdaptiveQuestion.options && (
         <div className="mt-6 grid gap-3">
-         {currentAdaptiveQuestion.options.map((option: string) => (
+          {currentAdaptiveQuestion.options.map((option) => (
             <button
               key={option}
               type="button"

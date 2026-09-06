@@ -4,10 +4,7 @@ import { usePatientSession } from '../patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../history/recordUtils';
 import { buildFhirBundle } from '../history/fhir';
 import { generateClinicalSummary } from '../history/summaryGenerator';
-import {
-  generateSummary,
-  BASE_URL,
-} from '../../services/api';
+import { generateSummary } from '../../services/api';
 import DocumentUpload from '../documents/DocumentUpload';
 import { detectConflicts } from '../history/conflictEngine';
 
@@ -81,10 +78,6 @@ export default function DoctorDashboard() {
 
   const evidenceFor = (field: string) =>
     s.evidence.find(e => e.field === field);
-
-  const documentAttentionItems = s.documents.flatMap(
-  (doc: any) => doc.attentionItems ?? [],
-);
 
   const makeAiSummary = async () => {
     setBusy(true);
@@ -222,56 +215,6 @@ export default function DoctorDashboard() {
 
           </div>
         )}
-        {/* Document Attention */}
-{documentAttentionItems.length > 0 && (
-  <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5">
-    <p className="font-semibold text-red-900">
-      Doctor attention · extracted documents
-    </p>
-
-    <p className="mt-1 text-sm text-red-800">
-      These document findings require clinician review.
-    </p>
-
-    <div className="mt-4 space-y-3">
-      {documentAttentionItems.map(
-        (item: any, index: number) => (
-          <div
-            key={`${item.name}-${index}`}
-            className="rounded-xl border border-red-200 bg-white p-4"
-          >
-            <p className="font-semibold text-ink">
-              {item.name}
-            </p>
-
-            <p className="mt-1 text-sm">
-              Patient result:{" "}
-              <strong>
-                {item.patientValue ?? "Not available"}
-              </strong>
-            </p>
-
-            {item.referenceRange && (
-              <p className="mt-1 text-sm text-muted">
-                Reference: {item.referenceRange}
-              </p>
-            )}
-
-            {item.comparison && (
-              <p className="mt-2 text-sm font-medium text-red-700">
-                {item.comparison}
-              </p>
-            )}
-
-            <p className="mt-1 text-xs text-muted">
-              Status: {item.status ?? "Review required"}
-            </p>
-          </div>
-        ),
-      )}
-    </div>
-  </div>
-)}
 
         {/* Conflicts */}
         {conflicts.length > 0 && (
@@ -654,20 +597,49 @@ export default function DoctorDashboard() {
 
               </div>
             )}
-            
-{/* DOCUMENTS TAB */}
-{tab === 'documents' && (
-  <div className="space-y-5">
-    <DocumentUpload />
 
-    {s.documents.map((doc: any) => (
-      <DoctorDocumentView
-        key={doc.id}
-        doc={doc}
-      />
-    ))}
-  </div>
-)}
+            {/* DOCUMENTS TAB */}
+            {tab === 'documents' && (
+              <div className="space-y-4">
+
+                <DocumentUpload />
+
+                <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+
+                  <h2 className="font-display text-xl font-semibold">
+                    Document evidence register
+                  </h2>
+
+                  {s.documents.map(d => (
+                    <div
+                      key={d.id}
+                      className="mt-4 rounded-xl bg-canvas p-4"
+                    >
+
+                      <p className="font-medium">
+                        {d.name}
+                      </p>
+
+                      {d.entities.map(
+                        (e: any, i: number) => (
+                          <p
+                            key={i}
+                            className="mt-1 text-sm text-muted"
+                          >
+                            {e.type}: {e.value} ·{' '}
+                            {e.confidence} · source:{' '}
+                            {e.sourceText}
+                          </p>
+                        )
+                      )}
+
+                    </div>
+                  ))}
+
+                </div>
+
+              </div>
+            )}
 
             {/* TIMELINE TAB */}
             {tab === 'timeline' && (
@@ -716,536 +688,6 @@ export default function DoctorDashboard() {
 
       </main>
 
-    </div>
-  );
-}
-
-function DoctorDocumentView({ doc }: { doc: any }) {
-  const structured = doc.structuredData;
-  const attentionItems = doc.attentionItems ?? [];
-
-  const sourceUrl = doc.sourceDocument?.url
-    ? doc.sourceDocument.url.startsWith("http")
-      ? doc.sourceDocument.url
-      : `${BASE_URL}${doc.sourceDocument.url}`
-    : null;
-
-  return (
-    <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-      {/* DOCUMENT HEADER */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-display text-xl font-semibold text-ink">
-            {doc.name || doc.sourceDocument?.originalName || "Medical Document"}
-          </h3>
-
-          <p className="mt-1 text-sm text-muted">
-            Uploaded{" "}
-            {doc.uploadedAt
-              ? new Date(doc.uploadedAt).toLocaleString()
-              : "Unknown date"}
-          </p>
-        </div>
-
-        <span className="rounded-full bg-clinic-50 px-3 py-1 text-xs font-semibold text-clinic-700">
-          {doc.extractionStatus || "Processed"}
-        </span>
-      </div>
-
-      {/* DOCTOR ATTENTION */}
-      {attentionItems.length > 0 && (
-        <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-          <h4 className="font-semibold text-red-800">
-            Doctor Attention
-          </h4>
-
-          <div className="mt-3 space-y-3">
-            {attentionItems.map((item: any, index: number) => (
-              <div
-                key={`${item.name || "attention"}-${index}`}
-                className="rounded-lg border border-red-200 bg-white p-3"
-              >
-                <p className="font-semibold text-red-800">
-                  {item.name || "Medical result"}
-                </p>
-
-                {item.patientValue && (
-                  <p className="mt-1 text-sm text-ink">
-                    Patient value:{" "}
-                    <span className="font-medium">
-                      {item.patientValue}
-                    </span>
-                  </p>
-                )}
-
-                {item.referenceRange && (
-                  <p className="mt-1 text-sm text-muted">
-                    Reference range: {item.referenceRange}
-                  </p>
-                )}
-
-                {item.comparison && (
-                  <p className="mt-1 text-sm text-red-700">
-                    {item.comparison}
-                  </p>
-                )}
-
-                {item.status && (
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-red-700">
-                    Status: {item.status}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* STRUCTURED MEDICAL DATA */}
-      {structured && (
-        <StructuredDoctorDocument data={structured} />
-      )}
-
-      {/* ORIGINAL DOCUMENT */}
-      {sourceUrl && (
-        <div className="mt-5 rounded-xl border border-clinic-100 bg-canvas p-4">
-          <p className="font-semibold text-ink">
-            Original source
-          </p>
-
-          <p className="mt-1 text-sm text-muted">
-            Verify the extracted information against the original document.
-          </p>
-
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-block rounded-full border border-clinic-200 px-4 py-2 text-sm font-medium text-clinic-700"
-          >
-            View original document
-          </a>
-
-          {doc.type?.startsWith("image/") && (
-            <img
-              src={sourceUrl}
-              alt={doc.name || "Original medical document"}
-              className="mt-4 max-h-[500px] w-full rounded-xl border border-clinic-100 object-contain"
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function StructuredDoctorDocument({ data }: { data: any }) {
-  return (
-    <div className="mt-5 space-y-4">
-
-      {/* PATIENT INFORMATION */}
-      {data.patient && (
-        <DoctorSection title="Patient Information">
-          <DoctorField label="Name" value={data.patient.name} />
-          <DoctorField label="Age" value={data.patient.age} />
-          <DoctorField label="Sex" value={data.patient.sex} />
-          <DoctorField
-            label="Date of Birth"
-            value={data.patient.dateOfBirth}
-          />
-          <DoctorField
-            label="Patient ID"
-            value={data.patient.patientId}
-          />
-        </DoctorSection>
-      )}
-
-      {/* VISIT INFORMATION */}
-      {data.visit && (
-        <DoctorSection title="Visit Information">
-          <DoctorField label="Date" value={data.visit.date} />
-          <DoctorField
-            label="Department"
-            value={data.visit.department}
-          />
-          <DoctorField label="Doctor" value={data.visit.doctor} />
-          <DoctorField
-            label="Facility"
-            value={data.visit.facility}
-          />
-        </DoctorSection>
-      )}
-
-      {/* CHIEF COMPLAINTS */}
-      {Array.isArray(data.chiefComplaints) &&
-        data.chiefComplaints.length > 0 && (
-          <DoctorSection title="Chief Complaints">
-            <div className="space-y-2">
-              {data.chiefComplaints.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  <p className="font-medium text-ink">
-                    {item.complaint ||
-                      item.name ||
-                      item.text ||
-                      "Complaint"}
-                  </p>
-
-                  {item.duration && (
-                    <p className="mt-1 text-sm text-muted">
-                      Duration: {item.duration}
-                    </p>
-                  )}
-
-                  {item.severity && (
-                    <p className="mt-1 text-sm text-muted">
-                      Severity: {item.severity}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* VITALS */}
-      {Array.isArray(data.vitals) && data.vitals.length > 0 && (
-        <DoctorSection title="Vitals">
-          <div className="space-y-2">
-            {data.vitals.map((item: any, index: number) => (
-              <MedicalResultRow
-                key={index}
-                item={item}
-              />
-            ))}
-          </div>
-        </DoctorSection>
-      )}
-
-      {/* CLINICAL EXAMINATION */}
-      {data.clinicalExamination && (
-        <DoctorSection title="Clinical Examination">
-          {Object.entries(data.clinicalExamination).map(
-            ([key, value]: [string, any]) => (
-              <DoctorField
-                key={key}
-                label={key}
-                value={value}
-              />
-            ),
-          )}
-        </DoctorSection>
-      )}
-
-      {/* PREVIOUS VISITS */}
-      {Array.isArray(data.previousVisits) &&
-        data.previousVisits.length > 0 && (
-          <DoctorSection title="Previous Visit History">
-            <div className="space-y-3">
-              {data.previousVisits.map((visit: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  {visit.date && (
-                    <p className="font-medium text-ink">
-                      {visit.date}
-                    </p>
-                  )}
-
-                  {visit.complaint && (
-                    <p className="mt-1 text-sm text-muted">
-                      Complaint: {visit.complaint}
-                    </p>
-                  )}
-
-                  {visit.diagnosis && (
-                    <p className="mt-1 text-sm text-muted">
-                      Diagnosis: {visit.diagnosis}
-                    </p>
-                  )}
-
-                  {visit.treatment && (
-                    <p className="mt-1 text-sm text-muted">
-                      Treatment: {visit.treatment}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* LABORATORY RESULTS */}
-      {Array.isArray(data.laboratoryResults) &&
-        data.laboratoryResults.length > 0 && (
-          <DoctorSection title="Laboratory Results">
-            <div className="space-y-2">
-              {data.laboratoryResults.map(
-                (item: any, index: number) => (
-                  <MedicalResultRow
-                    key={index}
-                    item={item}
-                  />
-                ),
-              )}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* DIAGNOSES */}
-      {Array.isArray(data.diagnoses) &&
-        data.diagnoses.length > 0 && (
-          <DoctorSection title="Diagnosis">
-            <div className="space-y-2">
-              {data.diagnoses.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  <p className="font-medium text-ink">
-                    {typeof item === "string"
-                      ? item
-                      : item.name ||
-                        item.diagnosis ||
-                        item.text ||
-                        "Diagnosis"}
-                  </p>
-
-                  {typeof item === "object" && item.type && (
-                    <p className="mt-1 text-sm text-muted">
-                      Type: {item.type}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* MEDICATIONS */}
-      {Array.isArray(data.medications) &&
-        data.medications.length > 0 && (
-          <DoctorSection title="Medications">
-            <div className="space-y-3">
-              {data.medications.map(
-                (medicine: any, index: number) => (
-                  <div
-                    key={index}
-                    className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                  >
-                    <p className="font-semibold text-ink">
-                      {medicine.name ||
-                        medicine.medicine ||
-                        medicine.drug ||
-                        "Medicine"}
-                    </p>
-
-                    {medicine.dose && (
-                      <p className="mt-1 text-sm text-muted">
-                        Dose: {medicine.dose}
-                      </p>
-                    )}
-
-                    {medicine.frequency && (
-                      <p className="mt-1 text-sm text-muted">
-                        Frequency: {medicine.frequency}
-                      </p>
-                    )}
-
-                    {medicine.duration && (
-                      <p className="mt-1 text-sm text-muted">
-                        Duration: {medicine.duration}
-                      </p>
-                    )}
-
-                    {medicine.route && (
-                      <p className="mt-1 text-sm text-muted">
-                        Route: {medicine.route}
-                      </p>
-                    )}
-
-                    {medicine.remarks && (
-                      <p className="mt-1 text-sm text-muted">
-                        Remarks: {medicine.remarks}
-                      </p>
-                    )}
-                  </div>
-                ),
-              )}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* ADVICE */}
-      {Array.isArray(data.advice) &&
-        data.advice.length > 0 && (
-          <DoctorSection title="Advice & Lifestyle Recommendations">
-            <div className="space-y-2">
-              {data.advice.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3 text-sm text-ink"
-                >
-                  {typeof item === "string"
-                    ? item
-                    : item.text ||
-                      item.advice ||
-                      item.description ||
-                      "Advice"}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* FOLLOW-UP */}
-      {data.followUp && (
-        <DoctorSection title="Follow-Up">
-          <DoctorField
-            label="Date"
-            value={data.followUp.date}
-          />
-          <DoctorField
-            label="Instructions"
-            value={data.followUp.instructions}
-          />
-          <DoctorField
-            label="Plan"
-            value={data.followUp.plan}
-          />
-        </DoctorSection>
-      )}
-    </div>
-  );
-}
-
-
-function MedicalResultRow({ item }: { item: any }) {
-  const name =
-    item.name ||
-    item.test ||
-    item.parameter ||
-    item.label ||
-    "Result";
-
-  const patientValue =
-    item.patientValue ??
-    item.value ??
-    item.result ??
-    item.patientResult;
-
-  const referenceRange =
-    item.referenceRange ??
-    item.normalRange ??
-    item.range;
-
-  const comparison =
-    item.comparison ??
-    item.status;
-
-  const needsAttention =
-    item.status === "high" ||
-    item.status === "low" ||
-    item.status === "outside_range" ||
-    item.status === "attention" ||
-    item.requiresAttention === true;
-
-  return (
-    <div className="rounded-lg border border-clinic-100 bg-canvas p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-ink">
-            {name}
-          </p>
-
-          <p className="mt-1 text-sm text-ink">
-            Patient result:{" "}
-            <span className="font-medium">
-              {patientValue ?? "Not available"}
-            </span>
-          </p>
-
-          {referenceRange && (
-            <p className="mt-1 text-sm text-muted">
-              Reference range: {referenceRange}
-            </p>
-          )}
-
-          {comparison && (
-            <p
-              className={`mt-1 text-sm ${
-                needsAttention
-                  ? "font-medium text-red-700"
-                  : "text-muted"
-              }`}
-            >
-              {comparison}
-            </p>
-          )}
-        </div>
-
-        {needsAttention && (
-          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-            Doctor attention
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-function DoctorSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-clinic-100 bg-white p-4">
-      <h4 className="font-display text-lg font-semibold text-ink">
-        {title}
-      </h4>
-
-      <div className="mt-3 space-y-2">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-
-function DoctorField({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-x-2 gap-y-1 rounded-lg bg-canvas px-3 py-2">
-      <span className="text-sm font-medium text-ink">
-        {label}:
-      </span>
-
-      <span className="text-sm text-muted">
-        {typeof value === "object"
-          ? JSON.stringify(value)
-          : String(value)}
-      </span>
     </div>
   );
 }
