@@ -59,43 +59,43 @@ function handleContinue() {
       (concept) => concept !== "unknown",
     )
   ) {
-const primaryConcept =
-  adaptiveAnalysis.concepts.find(
-    (concept) => concept !== "unknown",
-  );
+    const primaryConcept =
+      adaptiveAnalysis.concepts.find(
+        (concept) => concept !== "unknown",
+      );
 
-const conceptLabels: Record<string, string> = {
-  headache: "Headache",
-  abdominal_pain: "Abdominal pain",
-  chest_pain: "Chest pain",
-  breathing: "Breathing difficulty",
-  fever: "Fever",
-  cough: "Cough",
-  vomiting: "Vomiting",
-  diarrhea: "Diarrhea",
-  dizziness: "Dizziness",
-  rash: "Rash",
-  urinary: "Urinary symptoms",
-  joint_pain: "Joint pain",
-  back_pain: "Back pain",
-  weakness: "Weakness",
-  swelling: "Swelling",
-  bleeding: "Bleeding",
-  pain: "Pain",
-};
+    const conceptLabels: Record<string, string> = {
+      headache: "Headache",
+      abdominal_pain: "Abdominal pain",
+      chest_pain: "Chest pain",
+      breathing: "Breathing difficulty",
+      fever: "Fever",
+      cough: "Cough",
+      vomiting: "Vomiting",
+      diarrhea: "Diarrhea",
+      dizziness: "Dizziness",
+      rash: "Rash",
+      urinary: "Urinary symptoms",
+      joint_pain: "Joint pain",
+      back_pain: "Back pain",
+      weakness: "Weakness",
+      swelling: "Swelling",
+      bleeding: "Bleeding",
+      pain: "Pain",
+    };
 
-const primaryLabel =
-  (primaryConcept && conceptLabels[primaryConcept]) ||
-  result.displayName ||
-  "Reported symptom";
+    const primaryLabel =
+      (primaryConcept && conceptLabels[primaryConcept]) ||
+      result.displayName ||
+      "Reported symptom";
 
-setChiefComplaint({
-  complaintId: "custom",
-  displayName: primaryLabel,
-  originalInput: draftInput,
-  confidence: result.confidence ?? 0.8,
-  source: "patient",
-});
+    setChiefComplaint({
+      complaintId: "custom",
+      displayName: primaryLabel,
+      originalInput: draftInput,
+      confidence: result.confidence ?? 0.8,
+      source: "patient",
+    });
 
     navigate("/patient/history");
     return;

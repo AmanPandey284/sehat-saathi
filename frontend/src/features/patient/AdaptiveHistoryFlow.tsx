@@ -91,6 +91,8 @@ export default function AdaptiveHistoryFlow() {
     AdaptiveQuestion[]
   >([]);
 
+  const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
+const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
   const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
 const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
@@ -441,7 +443,7 @@ setEvidence([
 
     <h2 className="mt-2 text-2xl font-semibold text-ink">
      {language === "hi"
-  ? currentAdaptiveQuestion.textHi ?? currentAdaptiveQuestion.text
+  ? currentAdaptiveQuestion.text
   : currentAdaptiveQuestion.text}
     </h2>
 
