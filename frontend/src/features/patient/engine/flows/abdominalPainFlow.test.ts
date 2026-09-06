@@ -185,14 +185,16 @@ describe("urinary symptoms branching", () => {
     expect(engine.getCurrentQuestion()?.id).toBe("urinarySymptomType");
 
     engine.answerAndAdvance("burning");
-    expect(engine.getCurrentQuestion()?.id).toBe("additionalNotes");
+    expect(engine.getCurrentQuestion()?.id).toBe("associatedSymptoms");
   });
 
   it("skips symptom type when urinarySymptoms = no and reaches the final question", () => {
     const engine = engineAtUrinarySymptoms();
     engine.answerAndAdvance("no");
-    expect(engine.getCurrentQuestion()?.id).toBe("additionalNotes");
+    expect(engine.getCurrentQuestion()?.id).toBe("associatedSymptoms");
 
+    engine.answerAndAdvance(["none"]);
+    expect(engine.getCurrentQuestion()?.id).toBe("additionalNotes");
     engine.answerAndAdvance("Nothing else");
     expect(engine.isComplete()).toBe(true);
     expect(engine.getCurrentQuestion()).toBeNull();
@@ -288,6 +290,7 @@ describe("progress and completion across the full flow", () => {
     engine.answerAndAdvance("3 times");
     engine.answerAndAdvance("yes");
     engine.answerAndAdvance("burning");
+    engine.answerAndAdvance(["none"]);
     engine.answerAndAdvance("Nothing more");
 
     expect(engine.isComplete()).toBe(true);

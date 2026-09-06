@@ -70,9 +70,11 @@ function engineAtRespiratoryHistory(): QuestionEngine {
 }
 
 describe("completing the flow", () => {
-  it("reaches completion after answering additionalNotes", () => {
+  it("reaches completion after answering associated symptoms and additional notes", () => {
     const engine = engineAtRespiratoryHistory();
     engine.answerAndAdvance("no"); // respiratoryHistory
+    expect(engine.getCurrentQuestion()?.id).toBe("associatedSymptoms");
+    engine.answerAndAdvance(["none"]);
     expect(engine.getCurrentQuestion()?.id).toBe("additionalNotes");
     engine.answerAndAdvance("");
     expect(engine.isComplete()).toBe(true);

@@ -291,11 +291,11 @@ export const abdominalPainFlow: QuestionFlow = {
         { value: "no", labelEn: "No", labelHi: "नहीं" },
         { value: "not_sure", labelEn: "Not sure", labelHi: "पता नहीं" },
       ],
-      nextQuestionId: "additionalNotes",
+      nextQuestionId: "associatedSymptoms",
       branches: [
         { field: "urinarySymptoms", equals: "yes", nextQuestionId: "urinarySymptomType" },
-        { field: "urinarySymptoms", equals: "no", nextQuestionId: "additionalNotes" },
-        { field: "urinarySymptoms", equals: "not_sure", nextQuestionId: "additionalNotes" },
+        { field: "urinarySymptoms", equals: "no", nextQuestionId: "associatedSymptoms" },
+        { field: "urinarySymptoms", equals: "not_sure", nextQuestionId: "associatedSymptoms" },
       ],
     },
 

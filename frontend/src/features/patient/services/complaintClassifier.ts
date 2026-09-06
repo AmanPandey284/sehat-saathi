@@ -65,6 +65,7 @@ const KEYWORDS: Record<ComplaintId, string[]> = {
   ],
   fever: ["fever", "high temperature", "high fever", "bukhar", "bukhaar"],
   cough: ["cough", "coughing", "khansi", "khaansi", "kasi"],
+  custom: []
 };
 
 /**
