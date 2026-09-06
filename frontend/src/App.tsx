@@ -1,7 +1,12 @@
+
+import DoctorLogin from "./pages/DoctorLogin";
 import { Route, Routes } from 'react-router-dom';
 import { LanguageProvider } from './i18n/LanguageContext';
 import { PatientSessionProvider } from './features/patient/state/PatientSessionContext';
-import PatientLanding from './pages/PatientLanding';
+
+import PatientOtp from './pages/PatientOtp';
+import AuthLanding from './pages/AuthLanding';
+import PatientLogin from './pages/PatientLogin';
 import ComingSoon from './pages/ComingSoon';
 import ConsentScreen from './features/patient/ConsentScreen';
 import PatientProfile from './pages/PatientProfile';
@@ -17,7 +22,9 @@ import EmergencyScreen from './pages/EmergencyScreen';
 
 export default function App(){
   return <LanguageProvider><PatientSessionProvider><Routes>
-    <Route path="/" element={<PatientLanding/>}/>
+    <Route path="/" element={<AuthLanding />} />
+    <Route path="/patient/login" element={<PatientLogin />} />
+    <Route path="/patient/verify-otp" element={<PatientOtp />} />
     <Route path="/patient/consent" element={<ConsentScreen/>}/>
     <Route path="/patient/profile" element={<PatientProfile/>}/>
     <Route path="/patient" element={<ChiefComplaintFlow/>}/>
@@ -28,6 +35,7 @@ export default function App(){
     <Route path="/patient/emergency" element={<EmergencyScreen/>}/>
     <Route path="/doctor" element={<DoctorDashboard/>}/>
     <Route path="/analytics" element={<AnalyticsPage/>}/>
+    <Route path="/doctor/login" element={<DoctorLogin />} />
     <Route path="*" element={<ComingSoon label="That page doesn't exist"/>}/>
   </Routes></PatientSessionProvider></LanguageProvider>
 }
