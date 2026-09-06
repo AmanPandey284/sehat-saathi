@@ -6,6 +6,7 @@ import {
 
 import { detectAdaptiveConcepts } from "./adaptiveConceptDetector";
 import { extractAdaptiveInfo } from "./adaptiveExtractor";
+export type { AdaptiveQuestion } from "./adaptiveQuestionBank";
 
 export interface AdaptiveAnalysis {
   originalText: string;

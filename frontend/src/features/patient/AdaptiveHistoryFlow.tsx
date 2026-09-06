@@ -92,6 +92,8 @@ export default function AdaptiveHistoryFlow() {
   >([]);
 
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
+  const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
+const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [listening, setListening] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -259,11 +261,9 @@ setEvidenceLocal((previous) => ({
   [`adaptive_${currentAdaptiveQuestion.id}`]: evidence,
 }));
 
-setEvidence((previous) => [
-  ...previous.filter(
-    (item) =>
-      item.field !==
-      `adaptive_${currentAdaptiveQuestion.id}`,
+setEvidence([
+  ...Object.values(evidenceLocal).filter(
+    (item) => item.field !== evidence.field,
   ),
   evidence,
 ]);
@@ -318,34 +318,6 @@ setEvidence((previous) => [
   force((x) => x + 1);
 };
 
-  // Save the adaptive answer as evidence
-  setEvidence((previous) => ({
-    ...previous,
-    [`adaptive_${currentAdaptiveQuestion.id}`]: {
-      question: currentAdaptiveQuestion.text,
-      answer,
-      source: "adaptive-questioning",
-    },
-  }));
-
-  // Move to the next adaptive question
-  if (adaptiveQuestionIndex < adaptiveQuestions.length - 1) {
-    setAdaptiveQuestionIndex((index) => index + 1);
-    setTyped("");
-    setDraft(null);
-    return;
-  }
-
-  // Adaptive questioning is complete
-  sessionStorage.removeItem("sehatSaathi_adaptive_analysis");
-
-  setAdaptiveQuestions([]);
-  setAdaptiveQuestionIndex(0);
-
-  // Continue with the existing history flow
-  setTyped("");
-  setDraft(null);
-};
   const submit = () => {
     if (!active) return;
     const rawTyped = typed.trim();
@@ -518,7 +490,7 @@ setEvidence((previous) => [
     {currentAdaptiveQuestion.type === "single" &&
       currentAdaptiveQuestion.options && (
         <div className="mt-6 grid gap-3">
-          {currentAdaptiveQuestion.options.map((option) => (
+         {currentAdaptiveQuestion.options.map((option: string) => (
             <button
               key={option}
               type="button"

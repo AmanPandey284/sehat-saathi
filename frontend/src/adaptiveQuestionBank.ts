@@ -21,6 +21,7 @@ export type AdaptiveConcept =
 export interface AdaptiveQuestion {
   id: string;
   text: string;
+textHi?: string;
   type: "yes_no" | "text" | "single" | "multi";
   options?: string[];
   concepts: AdaptiveConcept[];
