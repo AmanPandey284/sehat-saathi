@@ -2,136 +2,414 @@ from __future__ import annotations
 
 import io
 import os
-import re
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    UploadFile,
+)
+from fastapi.staticfiles import StaticFiles
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+from ..core.medical_extractor import (
+    extract_medical_document,
+)
 
-ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".pdf", ".txt", ".csv", ".md"}
+router = APIRouter(
+    prefix="/documents",
+    tags=["documents"],
+)
+
+
+ALLOWED_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".pdf",
+    ".txt",
+    ".csv",
+    ".md",
+}
+
 MAX_FILE_BYTES = 8 * 1024 * 1024
+
+UPLOAD_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "uploads"
+)
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
 
 def _ext(name: str) -> str:
-    return os.path.splitext(name.lower())[1]
+    return os.path.splitext(
+        name.lower()
+    )[1]
 
 
-def _extract_entities(text: str) -> list[dict[str, Any]]:
-    entities: list[dict[str, Any]] = []
-    low = text.lower()
-    med_names = [
-        "metformin", "paracetamol", "amoxicillin", "azithromycin", "amlodipine",
-        "losartan", "insulin", "omeprazole", "pantoprazole", "atorvastatin",
-        "levothyroxine", "salbutamol", "cetirizine"
-    ]
-    diagnosis_names = [
-        "diabetes", "hypertension", "asthma", "tuberculosis", "anemia", "anaemia",
-        "infection", "pneumonia", "thyroid", "arthritis"
-    ]
-    procedure_words = ["surgery", "operation", "appendectomy", "biopsy", "dialysis", "angioplasty"]
+def _safe_filename(name: str) -> str:
+    ext = _ext(name)
 
-    def snippet(term: str) -> str:
-        m = re.search(rf".{{0,45}}{re.escape(term)}.{{0,45}}", text, flags=re.I | re.S)
-        return (m.group(0).replace("\n", " ") if m else term).strip()
-
-    for term in med_names:
-        if term in low:
-            entities.append({"type": "Medication", "value": term.title(), "confidence": "high", "sourceText": snippet(term)})
-    for term in diagnosis_names:
-        if term in low:
-            entities.append({"type": "Diagnosis/History", "value": term.title(), "confidence": "medium", "sourceText": snippet(term)})
-    for term in procedure_words:
-        if term in low:
-            entities.append({"type": "Procedure", "value": term.title(), "confidence": "medium", "sourceText": snippet(term)})
-
-    lab_patterns = [
-        r"(?P<name>Hemoglobin|Hb|Glucose|WBC|Platelets|Creatinine|TSH|T3|T4|Blood Pressure|BP)\s*[:=-]\s*(?P<value>-?\d+(?:\.\d+)?)\s*(?P<unit>mg/dL|g/dL|mmol/L|10\^3/uL|10\^9/L|mmHg|mIU/L|%)?",
-    ]
-    for pattern in lab_patterns:
-        for m in re.finditer(pattern, text, flags=re.I):
-            value = m.group("value")
-            unit = m.group("unit") or ""
-            entities.append({
-                "type": "Investigation",
-                "value": f"{m.group('name')}: {value} {unit}".strip(),
-                "confidence": "high",
-                "sourceText": m.group(0).strip(),
-            })
-
-    dates = re.findall(r"\b(?:\d{1,2}[/-])?(?:\d{1,2}[/-])?\d{4}\b", text)
-    for d in dates[:8]:
-        entities.append({"type": "Date", "value": d, "confidence": "high", "sourceText": d})
-    return entities[:50]
+    return (
+        uuid.uuid4().hex
+        + ext
+    )
 
 
-def _ocr_image(data: bytes, filename: str) -> tuple[str, list[dict[str, Any]]]:
+def _ocr_image(
+    data: bytes,
+    filename: str,
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+]:
     try:
         import pytesseract
-        from PIL import Image, ImageOps
+
+        from PIL import (
+            Image,
+            ImageEnhance,
+            ImageFilter,
+            ImageOps,
+        )
+
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"OCR dependencies unavailable: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "OCR dependencies unavailable: "
+                f"{exc}"
+            ),
+        )
+
     try:
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-        image = ImageOps.exif_transpose(image)
-        image.thumbnail((2400, 2400))
-        # Prefer bilingual OCR; fall back to English if Hindi traineddata isn't installed.
+        image = Image.open(
+            io.BytesIO(data)
+        )
+
+        image = ImageOps.exif_transpose(
+            image
+        ).convert("RGB")
+
+        # Preserve enough resolution for small
+        # prescription/laboratory text.
+        if max(image.size) < 2400:
+            scale = (
+                2400 / max(image.size)
+            )
+
+            image = image.resize(
+                (
+                    int(
+                        image.width
+                        * scale
+                    ),
+                    int(
+                        image.height
+                        * scale
+                    ),
+                )
+            )
+
+        image = ImageEnhance.Contrast(
+            image
+        ).enhance(1.15)
+
+        image = ImageEnhance.Sharpness(
+            image
+        ).enhance(1.25)
+
+        image = image.filter(
+            ImageFilter.SHARPEN
+        )
+
         try:
-            text = pytesseract.image_to_string(image, lang="eng+hin")
+            text = pytesseract.image_to_string(
+                image,
+                lang="eng+hin",
+                config="--psm 6",
+            )
         except Exception:
-            text = pytesseract.image_to_string(image, lang="eng")
-        return text.strip(), [{"page": 1, "text": text.strip(), "confidence": "medium"}]
+            text = pytesseract.image_to_string(
+                image,
+                lang="eng",
+                config="--psm 6",
+            )
+
+        return text.strip(), [
+            {
+                "page": 1,
+                "text": text.strip(),
+                "confidence": "medium",
+            }
+        ]
+
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not OCR {filename}: {exc}")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not OCR {filename}: "
+                f"{exc}"
+            ),
+        )
 
 
-def _process_pdf(data: bytes, filename: str) -> tuple[str, list[dict[str, Any]]]:
+def _process_pdf(
+    data: bytes,
+    filename: str,
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+]:
     try:
         import fitz
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"PDF support unavailable: {exc}")
-    doc = fitz.open(stream=data, filetype="pdf")
-    pages: list[dict[str, Any]] = []
-    all_text: list[str] = []
-    for idx, page in enumerate(doc):
-        text = page.get_text("text").strip()
-        if not text:
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
-            text, _ = _ocr_image(pix.tobytes("png"), f"{filename}-page-{idx+1}.png")
-        pages.append({"page": idx + 1, "text": text, "confidence": "medium"})
-        if text:
-            all_text.append(text)
-    return "\n\n".join(all_text), pages
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "PDF support unavailable: "
+                f"{exc}"
+            ),
+        )
+
+    try:
+        doc = fitz.open(
+            stream=data,
+            filetype="pdf",
+        )
+
+        pages = []
+        all_text = []
+
+        for idx, page in enumerate(doc):
+            text = page.get_text(
+                "text"
+            ).strip()
+
+            if not text:
+                pix = page.get_pixmap(
+                    matrix=fitz.Matrix(
+                        2.0,
+                        2.0,
+                    ),
+                    alpha=False,
+                )
+
+                text, _ = _ocr_image(
+                    pix.tobytes("png"),
+                    (
+                        f"{filename}-page-"
+                        f"{idx + 1}.png"
+                    ),
+                )
+
+            pages.append(
+                {
+                    "page": idx + 1,
+                    "text": text,
+                    "confidence": "medium",
+                }
+            )
+
+            if text:
+                all_text.append(text)
+
+        return (
+            "\n\n".join(all_text),
+            pages,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not process PDF "
+                f"{filename}: {exc}"
+            ),
+        )
 
 
 @router.post("/ocr")
-async def ocr_document(file: UploadFile = File(...)) -> dict[str, Any]:
-    name = file.filename or "document"
-    ext = _ext(name)
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Unsupported document type")
-    data = await file.read()
-    if len(data) > MAX_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="File too large; maximum is 8 MB")
+async def ocr_document(
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    original_name = (
+        file.filename or "document"
+    )
 
-    pages: list[dict[str, Any]] = []
-    text = ""
-    status = "extracted"
-    if ext in {".txt", ".csv", ".md"}:
-        text = data.decode("utf-8", errors="replace")
-        pages = [{"page": 1, "text": text, "confidence": "high"}]
+    ext = _ext(original_name)
+
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported document type",
+        )
+
+    data = await file.read()
+
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "File too large; maximum "
+                "is 8 MB"
+            ),
+        )
+
+    # ---------------------------------------------------------
+    # Save original document.
+    #
+    # This is important because the physician must be able
+    # to open the exact image/PDF used for extraction.
+    # ---------------------------------------------------------
+
+    stored_name = _safe_filename(
+        original_name
+    )
+
+    stored_path = (
+        UPLOAD_DIR / stored_name
+    )
+
+    stored_path.write_bytes(data)
+
+    file_url = (
+        f"/uploads/{stored_name}"
+    )
+
+    # ---------------------------------------------------------
+    # OCR
+    # ---------------------------------------------------------
+
+    if ext in {
+        ".txt",
+        ".csv",
+        ".md",
+    }:
+        text = data.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        pages = [
+            {
+                "page": 1,
+                "text": text,
+                "confidence": "high",
+            }
+        ]
+
     elif ext == ".pdf":
-        text, pages = _process_pdf(data, name)
+        text, pages = _process_pdf(
+            data,
+            original_name,
+        )
+
     else:
-        text, pages = _ocr_image(data, name)
+        text, pages = _ocr_image(
+            data,
+            original_name,
+        )
+
+    # ---------------------------------------------------------
+    # STRUCTURED MEDICAL EXTRACTION
+    # ---------------------------------------------------------
+
+    structured = extract_medical_document(
+        text
+    )
+
+    # ---------------------------------------------------------
+    # Doctor attention summary
+    # ---------------------------------------------------------
+
+    attention_items = []
+
+    for item in structured.get(
+        "vitals",
+        [],
+    ):
+        if item.get("attention"):
+            attention_items.append(
+                {
+                    "type": "Vital",
+                    "name": item.get(
+                        "name"
+                    ),
+                    "patientValue": item.get(
+                        "patientValue"
+                    ),
+                    "referenceRange": item.get(
+                        "reference_range"
+                    ),
+                    "status": item.get(
+                        "status"
+                    ),
+                    "comparison": item.get(
+                        "comparison"
+                    ),
+                }
+            )
+
+    for item in structured.get(
+        "laboratoryResults",
+        [],
+    ):
+        if item.get("attention"):
+            attention_items.append(
+                {
+                    "type": "Laboratory",
+                    "name": item.get(
+                        "testName"
+                    ),
+                    "patientValue": item.get(
+                        "patientValue"
+                    ),
+                    "referenceRange": item.get(
+                        "referenceRange"
+                    ),
+                    "status": item.get(
+                        "status"
+                    ),
+                    "comparison": item.get(
+                        "comparison"
+                    ),
+                }
+            )
 
     return {
-        "name": name,
+        "name": original_name,
         "type": ext.lstrip("."),
-        "processedAt": datetime.now(timezone.utc).isoformat(),
-        "extractionStatus": status,
+        "processedAt": datetime.now(
+            timezone.utc
+        ).isoformat(),
+
+        "extractionStatus": (
+            "structured"
+        ),
+
         "text": text,
+
         "pages": pages,
-        "entities": _extract_entities(text),
+
+        # Original source document
+        "sourceDocument": {
+            "originalName": original_name,
+            "storedName": stored_name,
+            "url": file_url,
+        },
+
+        # Full medical record
+        "structuredData": structured,
+
+        # Things requiring doctor review
+        "attentionItems": attention_items,
     }

@@ -3,11 +3,30 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import health, documents, ai
 from app.core.config import settings
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 app = FastAPI(
+    
     title=settings.app_name,
     version="0.2.0",
     description="MediKiosk prototype API for structured clinical intake and physician review.",
+)
+
+UPLOAD_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "uploads"
+)
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+app.mount(
+    "/uploads",
+    StaticFiles(directory=str(UPLOAD_DIR)),
+    name="uploads",
 )
 app.add_middleware(
     CORSMiddleware,
