@@ -6,6 +6,7 @@ import { classifyFreeText, classifyFromQuickButton, SUPPORTED_COMPLAINTS, type C
 import { usePatientSession } from "./state/PatientSessionContext";
 import { normalizeDuration } from "./services/durationNormalizer";
 import { detectUrgentComplaintText } from "../safety/safetyEngine";
+import { analyzePatientInput } from "../../adaptiveQuestionEngine";
 
 type Step = "input" | "unknown" | "confirm";
 
@@ -20,17 +21,58 @@ export default function ChiefComplaintFlow() {
   function handleQuickButton(id:(typeof SUPPORTED_COMPLAINTS)[number]){
     setValidationError(null); setClassification(classifyFromQuickButton(id)); setStep("confirm");
   }
-  function handleContinue(){
-    if(!draftInput.trim()){setValidationError(t.complaint.emptyInputError);return;}
-    setValidationError(null);
-    const urgentFlag = detectUrgentComplaintText(draftInput);
-    if(urgentFlag){
-      setSafetyFlags([urgentFlag]);
-      navigate('/patient/emergency');
-      return;
-    }
-    const result=classifyFreeText(draftInput); setClassification(result); setStep(result.complaintId?"confirm":"unknown");
+function handleContinue() {
+  if (!draftInput.trim()) {
+    setValidationError(t.complaint.emptyInputError);
+    return;
   }
+
+  setValidationError(null);
+
+  // Safety check comes first
+  const urgentFlag = detectUrgentComplaintText(draftInput);
+
+  if (urgentFlag) {
+    setSafetyFlags([urgentFlag]);
+    navigate("/patient/emergency");
+    return;
+  }
+
+  // Analyze the patient's free-text input
+  const adaptiveAnalysis = analyzePatientInput(draftInput);
+
+  // Save the analysis for AdaptiveHistoryFlow
+  sessionStorage.setItem(
+    "sehatSaathi_adaptive_analysis",
+    JSON.stringify(adaptiveAnalysis),
+  );
+
+  // Keep the existing classifier
+  const result = classifyFreeText(draftInput);
+  setClassification(result);
+
+  // If relevant concepts were detected,
+  // go directly to the adaptive history.
+  if (
+    adaptiveAnalysis.questions.length > 0 &&
+    adaptiveAnalysis.concepts.some(
+      (concept) => concept !== "unknown",
+    )
+  ) {
+    setChiefComplaint({
+      complaintId: "custom",
+      displayName: draftInput,
+      originalInput: draftInput,
+      confidence: 0.8,
+    });
+
+    navigate("/patient/history");
+    return;
+  }
+
+  // Otherwise keep the existing flow
+  setStep(result.complaintId ? "confirm" : "unknown");
+}
   function handleConfirmYes(){
     if(!classification?.complaintId||!classification.displayName)return;
     setChiefComplaint({complaintId:classification.complaintId,displayName:classification.displayName,originalInput:classification.originalInput,confidence:classification.confidence,source:"patient"});
