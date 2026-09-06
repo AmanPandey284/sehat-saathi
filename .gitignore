@@ -1,26 +1,32 @@
-# Node / frontend
+# Dependencies
 node_modules/
+
+# Build
 dist/
+*.tsbuildinfo
+
+# Vite
 .vite/
+
+# Local files
 *.local
 
-# Python / backend
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
 *.egg-info/
 
-# Environment secrets — never commit real .env files
+# Environment variables
 .env
 .env.*
 !.env.example
 
-# Editors / OS
+# IDE / Editor
 .vscode/
 .idea/
+
+# OS files
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
