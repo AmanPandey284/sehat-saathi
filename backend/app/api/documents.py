@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import asyncio
 import io
 import os
 import uuid
@@ -13,7 +13,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
-from fastapi.staticfiles import StaticFiles
+
 
 from ..core.medical_extractor import (
     extract_medical_document,
@@ -91,6 +91,8 @@ def _ocr_image(
         )
 
     try:
+        print(f"[OCR] Starting image OCR: {filename}")
+
         image = Image.open(
             io.BytesIO(data)
         )
@@ -99,22 +101,48 @@ def _ocr_image(
             image
         ).convert("RGB")
 
-        # Preserve enough resolution for small
-        # prescription/laboratory text.
-        if max(image.size) < 2400:
+        print(
+            f"[OCR] Original image size: "
+            f"{image.width}x{image.height}"
+        )
+
+        # Keep OCR input large enough for small
+        # medical text, but prevent extremely large
+        # camera images from consuming excessive CPU.
+        max_dimension = 2600
+
+        if max(image.size) > max_dimension:
             scale = (
-                2400 / max(image.size)
+                max_dimension / max(image.size)
             )
 
             image = image.resize(
                 (
+                    max(
+                        1,
+                        int(
+                            image.width * scale
+                        ),
+                    ),
+                    max(
+                        1,
+                        int(
+                            image.height * scale
+                        ),
+                    ),
+                )
+            )
+
+        elif max(image.size) < 1800:
+            scale = 1800 / max(image.size)
+
+            image = image.resize(
+                (
                     int(
-                        image.width
-                        * scale
+                        image.width * scale
                     ),
                     int(
-                        image.height
-                        * scale
+                        image.height * scale
                     ),
                 )
             )
@@ -125,34 +153,88 @@ def _ocr_image(
 
         image = ImageEnhance.Sharpness(
             image
-        ).enhance(1.25)
+        ).enhance(1.2)
 
         image = image.filter(
             ImageFilter.SHARPEN
         )
 
+        # Detect which Tesseract languages are actually
+        # installed on Render.
+        try:
+            available_languages = set(
+                pytesseract.get_languages(
+                    config=""
+                )
+            )
+        except Exception:
+            available_languages = {"eng"}
+
+        language = (
+            "eng+hin"
+            if {
+                "eng",
+                "hin",
+            }.issubset(available_languages)
+            else "eng"
+        )
+
+        print(
+            f"[OCR] Using Tesseract language: "
+            f"{language}"
+        )
+
+        config = (
+            "--oem 3 "
+            "--psm 6 "
+            "-c preserve_interword_spaces=1"
+        )
+
         try:
             text = pytesseract.image_to_string(
                 image,
-                lang="eng+hin",
-                config="--psm 6",
+                lang=language,
+                config=config,
+                timeout=30,
             )
-        except Exception:
-            text = pytesseract.image_to_string(
-                image,
-                lang="eng",
-                config="--psm 6",
+        except RuntimeError as exc:
+            print(
+                f"[OCR] Tesseract timeout/error for "
+                f"{filename}: {exc}"
             )
 
-        return text.strip(), [
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "OCR timed out while processing "
+                    f"{filename}. Please upload a clearer "
+                    "or smaller image."
+                ),
+            )
+
+        text = text.strip()
+
+        print(
+            f"[OCR] Finished {filename}; "
+            f"characters extracted: {len(text)}"
+        )
+
+        return text, [
             {
                 "page": 1,
-                "text": text.strip(),
+                "text": text,
                 "confidence": "medium",
             }
         ]
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
+        print(
+            f"[OCR] Failed for {filename}: {exc}"
+        )
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -160,7 +242,6 @@ def _ocr_image(
                 f"{exc}"
             ),
         )
-
 
 def _process_pdf(
     data: bytes,
@@ -308,24 +389,39 @@ async def ocr_document(
         ]
 
     elif ext == ".pdf":
-        text, pages = _process_pdf(
+        print(
+            f"[OCR] Sending PDF to worker: "
+            f"{original_name}"
+        )
+
+        text, pages = await asyncio.to_thread(
+            _process_pdf,
             data,
             original_name,
         )
 
     else:
-        text, pages = _ocr_image(
+        print(
+            f"[OCR] Sending image to worker: "
+            f"{original_name}"
+        )
+
+        text, pages = await asyncio.to_thread(
+            _ocr_image,
             data,
             original_name,
         )
-
     # ---------------------------------------------------------
     # STRUCTURED MEDICAL EXTRACTION
     # ---------------------------------------------------------
+    print("[OCR] Starting medical structuring")
 
-    structured = extract_medical_document(
-        text
+    structured = await asyncio.to_thread(
+        extract_medical_document,
+        text,
     )
+
+    print("[OCR] Medical structuring finished")
 
     # ---------------------------------------------------------
     # Doctor attention summary
