@@ -63,7 +63,6 @@ def _safe_filename(name: str) -> str:
         + ext
     )
 
-
 def _ocr_image(
     data: bytes,
     filename: str,
@@ -77,10 +76,8 @@ def _ocr_image(
         from PIL import (
             Image,
             ImageEnhance,
-            ImageFilter,
             ImageOps,
         )
-
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -106,14 +103,12 @@ def _ocr_image(
             f"{image.width}x{image.height}"
         )
 
-        # Keep OCR input large enough for small
-        # medical text, but prevent extremely large
-        # camera images from consuming excessive CPU.
-        max_dimension = 2600
+        max_dimension = 1800
 
         if max(image.size) > max_dimension:
             scale = (
-                max_dimension / max(image.size)
+                max_dimension
+                / max(image.size)
             )
 
             image = image.resize(
@@ -121,46 +116,24 @@ def _ocr_image(
                     max(
                         1,
                         int(
-                            image.width * scale
+                            image.width
+                            * scale
                         ),
                     ),
                     max(
                         1,
                         int(
-                            image.height * scale
+                            image.height
+                            * scale
                         ),
-                    ),
-                )
-            )
-
-        elif max(image.size) < 1800:
-            scale = 1800 / max(image.size)
-
-            image = image.resize(
-                (
-                    int(
-                        image.width * scale
-                    ),
-                    int(
-                        image.height * scale
                     ),
                 )
             )
 
         image = ImageEnhance.Contrast(
             image
-        ).enhance(1.15)
+        ).enhance(1.1)
 
-        image = ImageEnhance.Sharpness(
-            image
-        ).enhance(1.2)
-
-        image = image.filter(
-            ImageFilter.SHARPEN
-        )
-
-        # Detect which Tesseract languages are actually
-        # installed on Render.
         try:
             available_languages = set(
                 pytesseract.get_languages(
@@ -175,7 +148,9 @@ def _ocr_image(
             if {
                 "eng",
                 "hin",
-            }.issubset(available_languages)
+            }.issubset(
+                available_languages
+            )
             else "eng"
         )
 
@@ -191,24 +166,26 @@ def _ocr_image(
         )
 
         try:
-            text = pytesseract.image_to_string(
-                image,
-                lang=language,
-                config=config,
-                timeout=30,
+            text = (
+                pytesseract.image_to_string(
+                    image,
+                    lang=language,
+                    config=config,
+                    timeout=45,
+                )
             )
         except RuntimeError as exc:
             print(
-                f"[OCR] Tesseract timeout/error for "
-                f"{filename}: {exc}"
+                f"[OCR] Tesseract timeout/error "
+                f"for {filename}: {exc}"
             )
 
             raise HTTPException(
                 status_code=504,
                 detail=(
                     "OCR timed out while processing "
-                    f"{filename}. Please upload a clearer "
-                    "or smaller image."
+                    f"{filename}. Please upload a "
+                    "clearer or smaller image."
                 ),
             )
 
@@ -219,13 +196,16 @@ def _ocr_image(
             f"characters extracted: {len(text)}"
         )
 
-        return text, [
-            {
-                "page": 1,
-                "text": text,
-                "confidence": "medium",
-            }
-        ]
+        return (
+            text,
+            [
+                {
+                    "page": 1,
+                    "text": text,
+                    "confidence": "medium",
+                }
+            ],
+        )
 
     except HTTPException:
         raise
@@ -242,7 +222,6 @@ def _ocr_image(
                 f"{exc}"
             ),
         )
-
 def _process_pdf(
     data: bytes,
     filename: str,
