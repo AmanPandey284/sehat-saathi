@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-body antialiased;
+  }
+
+  /* Visible focus rings everywhere — this app will be used on hospital
+     kiosks with keyboard/switch-access hardware, not just a mouse. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-clinic-500 ring-offset-2 ring-offset-canvas;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

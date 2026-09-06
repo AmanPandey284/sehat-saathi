@@ -1,0 +1,19 @@
+import { normalizeYesNoAnswer } from './answerNormalizer';
+import { normalizeDuration } from './durationNormalizer';
+import { normalizeSeverity } from './severityNormalizer';
+export type Confidence='high'|'medium'|'low';
+export interface AnswerEvidence { field:string; originalAnswer:string; normalizedValue:string|number|boolean|null; source:'PATIENT'|'DOCUMENT'|'AI-DERIVED'|'DOCTOR'; language:'en'|'hi'|'mixed'; timestamp:string; confidence:Confidence; }
+export function detectLanguage(text:string):AnswerEvidence['language']{const hasHi=/[\u0900-\u097F]/u.test(text);const hasLat=/[A-Za-z]/.test(text);return hasHi&&hasLat?'mixed':hasHi?'hi':'en';}
+function normalizeGeneric(raw:string): {value:string|null;confidence:Confidence}{const v=raw.trim();return v?{value:v,confidence:'medium'}:{value:null,confidence:'low'};}
+export function normalizeTemperature(raw:string): {value:number|null;unit:'F'|'C'|null;confidence:Confidence;originalAnswer:string}{const t=raw.trim();const m=t.match(/(-?\d+(?:\.\d+)?)\s*°?\s*([fc])/i);if(m){const value=Number(m[1]);return {value:Number.isFinite(value)?value:null,unit:m[2].toUpperCase() as 'F'|'C',confidence:Number.isFinite(value)?'high':'low',originalAnswer:raw};}const n=t.match(/(?:temperature|temp|तापमान)\s*(?:is|=|है|था)?\s*(-?\d+(?:\.\d+)?)/i);if(n)return {value:Number(n[1]),unit:null,confidence:'low',originalAnswer:raw};return {value:null,unit:null,confidence:'low',originalAnswer:raw};}
+export function normalizeFrequency(raw:string): {count:number|null;period:'hour'|'day'|'week'|null;confidence:Confidence;originalAnswer:string}{const text=raw.toLowerCase().trim();const m=text.match(/(\d+(?:\.\d+)?)/);const wordCounts:Record<string,number>={once:1,twice:2,thrice:3,one:1,two:2,three:3,teen:3,एक:1,दो:2,तीन:3,चार:4};let count=m?Number(m[1]):null;if(count===null){for(const[k,v]of Object.entries(wordCounts))if(new RegExp(`(^|[^\\p{L}])${k}($|[^\\p{L}])`,'u').test(` ${text} `)){count=v;break;}}
+const period=/a day|per day|daily|दिन में|दिन/.test(text)?'day':/an hour|per hour|hourly|घंटे/.test(text)?'hour':/a week|per week|weekly|हफ्ते|सप्ताह/.test(text)?'week':null;return {count,period:period as 'hour'|'day'|'week'|null,confidence:count!==null?'high':'low',originalAnswer:raw};}
+export function normalizeClinicalAnswer(field:string,raw:string):AnswerEvidence{const base={field,originalAnswer:raw,source:'PATIENT' as const,language:detectLanguage(raw),timestamp:new Date().toISOString(),confidence:'medium' as Confidence};
+ let normalizedValue:string|number|boolean|null=normalizeGeneric(raw).value; let confidence:Confidence=normalizeGeneric(raw).confidence;
+ const yesNoKeys=['vomiting','fever','chills','sweating','cough','soreThroat','breathingDifficulty','diarrhoea','urinarySymptoms','rash','breathlessness','chestPain','bloodInCough','smokingExposure','respiratoryHistory','knowsTemperature','keepingFluidsDown'];
+ if(yesNoKeys.some(k=>field===k)){const n=normalizeYesNoAnswer(raw).normalized;if(n==='yes')normalizedValue=true;else if(n==='no')normalizedValue=false;else if(n==='not_sure')normalizedValue='not_sure';else normalizedValue=null;confidence=n==='unknown'?'low':'high';}
+ if(field==='duration'||/Duration$/i.test(field)||field==='onsetTime'){const r=normalizeDuration(raw);normalizedValue=r.normalizedDays;confidence=r.confidence;}
+ if(field==='severity'){const r=normalizeSeverity(raw);normalizedValue=r.normalizedSeverity;confidence=r.confidence;}
+ if(field==='temperature'){const r=normalizeTemperature(raw);normalizedValue=r.value===null?null:`${r.value}${r.unit?' °'+r.unit:''}`;confidence=r.confidence;}
+ if(/frequency|Count$/i.test(field)){const r=normalizeFrequency(raw);normalizedValue=r.count===null?null:`${r.count}${r.period?'/'+r.period:''}`;confidence=r.confidence;}
+ return {...base,normalizedValue,confidence};}
