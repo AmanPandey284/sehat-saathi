@@ -17,6 +17,7 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+backend/uploads/
 
 # Environment variables
 .env

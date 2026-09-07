@@ -78,7 +78,7 @@ def _safe_filename(name: str) -> str:
 # IMAGE OCR
 #
 # Important:
-# - No artificial OCR timer.
+# - OCR timeouts fail clearly instead of leaving the UI loading forever.
 # - OCR runs inside a worker thread.
 # - Large images are resized before OCR.
 # - Hindi is used only when installed.
@@ -138,7 +138,8 @@ def _ocr_image(
         # preserving enough resolution for medical text.
         # -------------------------------------------------
 
-        max_dimension = 1800
+        # Keep CPU-heavy bilingual OCR responsive on Render's small instances.
+        max_dimension = 1400
 
         if max(image.size) > max_dimension:
             scale = (
@@ -216,7 +217,8 @@ def _ocr_image(
         # -------------------------------------------------
         # OCR
         #
-        # NO timeout is intentionally specified.
+        # A bounded timeout prevents a difficult scan from holding the
+        # browser's “Reading…” state indefinitely.
         # -------------------------------------------------
 
         try:
@@ -224,19 +226,20 @@ def _ocr_image(
                 image,
                 lang=language,
                 config=config,
+                timeout=20,
             )
 
-        except Exception as exc:
+        except RuntimeError as exc:
             print(
-                f"[OCR] Tesseract failed for "
+                f"[OCR] Tesseract timeout for "
                 f"{filename}: {exc}"
             )
 
             raise HTTPException(
-                status_code=400,
+                status_code=504,
                 detail=(
-                    f"OCR failed for {filename}: "
-                    f"{exc}"
+                    "OCR could not finish within 20 seconds. "
+                    "Please upload a clearer, smaller image or use a PDF/text report."
                 ),
             )
 
