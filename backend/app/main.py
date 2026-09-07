@@ -1,7 +1,7 @@
 """MediKiosk backend API."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, documents, ai
+from app.api import health, documents, ai, auth
 from app.core.config import settings
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -38,7 +38,10 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 @app.get("/")
 def root() -> dict[str, str]:
     return {"message": "MediKiosk API. See /docs for available endpoints."}
+
+
