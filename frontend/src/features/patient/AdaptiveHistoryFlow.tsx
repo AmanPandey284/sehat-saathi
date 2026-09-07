@@ -92,8 +92,11 @@ export default function AdaptiveHistoryFlow() {
     AdaptiveQuestion[]
   >([]);
 
-  const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
-  const [error, setError] = useState("");
+const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
+const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
+const [adaptiveAnswers, setAdaptiveAnswers] =
+  useState<Record<string, string>>({});
+const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [evidenceLocal, setEvidenceLocal] = useState<
     Record<string, ReturnType<typeof normalizeClinicalAnswer>>

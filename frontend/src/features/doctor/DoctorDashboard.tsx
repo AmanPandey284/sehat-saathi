@@ -4,10 +4,7 @@ import { usePatientSession } from '../patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../history/recordUtils';
 import { buildFhirBundle } from '../history/fhir';
 import { generateClinicalSummary } from '../history/summaryGenerator';
-import {
-  generateSummary,
-  BASE_URL,
-} from '../../services/api';
+import { generateSummary } from '../../services/api';
 import DocumentUpload from '../documents/DocumentUpload';
 import { detectConflicts } from '../history/conflictEngine';
 
@@ -31,7 +28,7 @@ export default function DoctorDashboard() {
   const s = usePatientSession();
 
   const [tab, setTab] = useState<
-    'summary' | 'conversation' | 'documents' | 'timeline'
+    'summary' | 'conversation' | 'documents' | 'timeline' | 'ayush'
   >('summary');
 
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -41,6 +38,7 @@ export default function DoctorDashboard() {
 
   const answers = s.historyAnswers ?? {};
   const complaint = s.chiefComplaint;
+  const ayushHistory = s.ayushHistory ?? {};
 
   const conflicts = useMemo(
     () =>
@@ -82,10 +80,6 @@ export default function DoctorDashboard() {
   const evidenceFor = (field: string) =>
     s.evidence.find(e => e.field === field);
 
-  const documentAttentionItems = s.documents.flatMap(
-  (doc: any) => doc.attentionItems ?? [],
-);
-
   const makeAiSummary = async () => {
     setBusy(true);
 
@@ -94,7 +88,8 @@ export default function DoctorDashboard() {
         complaint,
         history: {
           ...answers,
-          ...s.backgroundHistory
+          ...s.backgroundHistory,
+          ayushHistory
         },
         documents: s.documents,
         evidence: s.evidence
@@ -146,25 +141,116 @@ export default function DoctorDashboard() {
     review(field, 'edited');
   };
 
+  const ayushSections = useMemo(() => {
+    const sectionMap: Record<string, string[]> = {
+      'Dashavidha Pariksha': [
+        'prakriti',
+        'vikriti',
+        'sara',
+        'samhanana',
+        'pramana',
+        'satmya',
+        'sattva',
+        'ahara_shakti',
+        'vyayama_shakti',
+        'vaya'
+      ],
+      'Ashtavidha Pariksha': [
+        'nadi',
+        'mala',
+        'mutra',
+        'jihva',
+        'shabda',
+        'sparsha',
+        'drik',
+        'akriti'
+      ],
+      'Agni & Koshtha': ['agni', 'koshtha'],
+      'Ahara–Vihara': [
+        'meal_pattern',
+        'food_habits',
+        'water_intake',
+        'sleep',
+        'exercise',
+        'daily_routine'
+      ],
+      'Nidana Panchaka': [
+        'nidana',
+        'purvarupa',
+        'rupa',
+        'upashaya',
+        'anupashaya'
+      ],
+      Samprapti: [
+        'dosha_history',
+        'dushya_history',
+        'srotas_history',
+        'udbhava_sthana',
+        'roga_marga'
+      ]
+    };
+
+    return Object.entries(sectionMap)
+      .map(([section, fields]) => ({
+        section,
+        fields: fields.filter(field => ayushHistory[field])
+      }))
+      .filter(group => group.fields.length > 0);
+  }, [ayushHistory]);
+
+  const ayushLabels: Record<string, string> = {
+    prakriti: 'Prakriti',
+    vikriti: 'Vikriti',
+    sara: 'Sara',
+    samhanana: 'Samhanana',
+    pramana: 'Pramana',
+    satmya: 'Satmya',
+    sattva: 'Sattva',
+    ahara_shakti: 'Ahara Shakti',
+    vyayama_shakti: 'Vyayama Shakti',
+    vaya: 'Vaya',
+    nadi: 'Nadi',
+    mala: 'Mala',
+    mutra: 'Mutra',
+    jihva: 'Jihva',
+    shabda: 'Shabda',
+    sparsha: 'Sparsha',
+    drik: 'Drik',
+    akriti: 'Akriti',
+    agni: 'Agni',
+    koshtha: 'Koshtha',
+    meal_pattern: 'Meal pattern',
+    food_habits: 'Food habits',
+    water_intake: 'Water intake',
+    sleep: 'Sleep',
+    exercise: 'Exercise / activity',
+    daily_routine: 'Daily routine',
+    nidana: 'Nidana',
+    purvarupa: 'Purvarupa',
+    rupa: 'Rupa',
+    upashaya: 'Upashaya',
+    anupashaya: 'Anupashaya',
+    dosha_history: 'Dosha-related history',
+    dushya_history: 'Dushya-related history',
+    srotas_history: 'Srotas-related history',
+    udbhava_sthana: 'Udbhava Sthana',
+    roga_marga: 'Rogamarga'
+  };
+
   return (
     <div className="min-h-screen bg-canvas">
-
-      {/* Header */}
       <header className="border-b border-clinic-100 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-clinic-500">
               Sehat Saathi · Physician review
             </p>
-
             <h1 className="font-display text-2xl font-semibold text-ink">
               Clinical intake dashboard
             </h1>
           </div>
 
           <div className="flex gap-2">
-
             <Link
               to="/"
               className="rounded-full border border-clinic-200 px-4 py-2 text-sm text-muted"
@@ -185,14 +271,11 @@ export default function DoctorDashboard() {
             >
               Analytics
             </Link>
-
           </div>
         </div>
       </header>
 
-      {/* Main */}
       <main className="mx-auto max-w-7xl px-6 py-6">
-
         {!complaint && (
           <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             No live patient session. The page below is safe demo scaffolding;
@@ -200,10 +283,8 @@ export default function DoctorDashboard() {
           </div>
         )}
 
-        {/* Safety Flags */}
         {s.safetyFlags.length > 0 && (
           <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5">
-
             <p className="font-semibold text-red-900">
               Priority clinical review
             </p>
@@ -219,64 +300,11 @@ export default function DoctorDashboard() {
                 {f.title} — {f.explanation}
               </p>
             ))}
-
           </div>
         )}
-        {/* Document Attention */}
-{documentAttentionItems.length > 0 && (
-  <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5">
-    <p className="font-semibold text-red-900">
-      Doctor attention · extracted documents
-    </p>
 
-    <p className="mt-1 text-sm text-red-800">
-      These document findings require clinician review.
-    </p>
-
-    <div className="mt-4 space-y-3">
-      {documentAttentionItems.map(
-        (item: any, index: number) => (
-          <div
-            key={`${item.name}-${index}`}
-            className="rounded-xl border border-red-200 bg-white p-4"
-          >
-            <p className="font-semibold text-ink">
-              {item.name}
-            </p>
-
-            <p className="mt-1 text-sm">
-              Patient result:{" "}
-              <strong>
-                {item.patientValue ?? "Not available"}
-              </strong>
-            </p>
-
-            {item.referenceRange && (
-              <p className="mt-1 text-sm text-muted">
-                Reference: {item.referenceRange}
-              </p>
-            )}
-
-            {item.comparison && (
-              <p className="mt-2 text-sm font-medium text-red-700">
-                {item.comparison}
-              </p>
-            )}
-
-            <p className="mt-1 text-xs text-muted">
-              Status: {item.status ?? "Review required"}
-            </p>
-          </div>
-        ),
-      )}
-    </div>
-  </div>
-)}
-
-        {/* Conflicts */}
         {conflicts.length > 0 && (
           <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-
             <p className="font-semibold text-amber-900">
               Possible information conflicts
             </p>
@@ -295,17 +323,12 @@ export default function DoctorDashboard() {
                 Review before saving.
               </div>
             ))}
-
           </div>
         )}
 
         <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
-
-          {/* Sidebar */}
           <aside className="h-fit rounded-2xl border border-clinic-100 bg-white p-5 shadow-sm">
-
             <div className="rounded-xl bg-clinic-50 p-4">
-
               <p className="text-xs uppercase tracking-wide text-muted">
                 Patient
               </p>
@@ -322,17 +345,16 @@ export default function DoctorDashboard() {
               <p className="mt-1 text-xs text-muted">
                 ID: {s.patientProfile?.identifier || 'DEMO'}
               </p>
-
             </div>
 
             <div className="mt-5 space-y-2">
-
               {(
                 [
                   'summary',
                   'conversation',
                   'documents',
-                  'timeline'
+                  'timeline',
+                  'ayush'
                 ] as const
               ).map(t => (
                 <button
@@ -344,10 +366,11 @@ export default function DoctorDashboard() {
                       : 'text-muted hover:bg-clinic-50'
                   }`}
                 >
-                  {t[0].toUpperCase() + t.slice(1)}
+                  {t === 'ayush'
+                    ? 'AYUSH'
+                    : t[0].toUpperCase() + t.slice(1)}
                 </button>
               ))}
-
             </div>
 
             <button
@@ -372,7 +395,7 @@ export default function DoctorDashboard() {
                     s.safetyFlags,
                     s.doctorReviews
                   ),
-                  'medikiosk-fhir-bundle.json'
+                  'sehat-saathi-fhir-bundle.json'
                 )
               }
               className="mt-3 w-full rounded-lg border border-clinic-200 px-3 py-2 text-sm font-medium text-clinic-700"
@@ -386,21 +409,14 @@ export default function DoctorDashboard() {
             >
               End & clear demo session
             </button>
-
           </aside>
 
-          {/* Content */}
           <section className="space-y-5">
-
-            {/* SUMMARY TAB */}
             {tab === 'summary' && (
               <>
                 <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-
                   <div className="flex flex-wrap items-start justify-between gap-4">
-
                     <div>
-
                       <p className="text-xs font-semibold uppercase tracking-wide text-clinic-500">
                         Chief complaint
                       </p>
@@ -414,23 +430,17 @@ export default function DoctorDashboard() {
                         {complaint?.originalInput || 'Not reported'}
                         ”
                       </p>
-
                     </div>
 
                     <span className="rounded-full bg-clinic-50 px-3 py-1 text-xs text-clinic-800">
                       Draft · physician controlled
                     </span>
-
                   </div>
                 </div>
 
-                {/* Physician Summary */}
                 <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-
                   <div className="flex items-center justify-between gap-3">
-
                     <div>
-
                       <h2 className="font-display text-xl font-semibold text-ink">
                         Physician-ready summary
                       </h2>
@@ -440,7 +450,6 @@ export default function DoctorDashboard() {
                           ? `Provider: ${summaryProvider}`
                           : 'Evidence-based local draft'}
                       </p>
-
                     </div>
 
                     <button
@@ -453,20 +462,15 @@ export default function DoctorDashboard() {
                     >
                       Copy
                     </button>
-
                   </div>
 
                   <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-canvas p-4 text-sm leading-6 text-ink">
                     {effectiveSummary}
                   </pre>
-
                 </div>
 
-                {/* Structured History */}
                 <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-
                   <div className="flex items-center justify-between">
-
                     <h2 className="font-display text-xl font-semibold text-ink">
                       Structured history
                     </h2>
@@ -474,23 +478,14 @@ export default function DoctorDashboard() {
                     <span className="text-xs text-muted">
                       Confirm each field before clinical use
                     </span>
-
                   </div>
 
                   <div className="mt-3 divide-y divide-clinic-50">
-
                     {Object.entries(answers).map(
                       ([field, value]) => {
-
                         const ev =
                           evidenceFor(field);
 
-                        /*
-                         * IMPORTANT FIX:
-                         * The review() function above is kept intact.
-                         * We use reviewRecord here to avoid
-                         * shadowing the review() function.
-                         */
                         const reviewRecord =
                           s.doctorReviews.find(
                             r => r.field === field
@@ -509,12 +504,8 @@ export default function DoctorDashboard() {
                             key={field}
                             className="py-4"
                           >
-
                             <div className="grid gap-3 lg:grid-cols-[180px_1fr] lg:items-start">
-
-                              {/* Field label */}
                               <div>
-
                                 <p className="text-sm font-medium text-ink">
                                   {labelField(field)}
                                 </p>
@@ -527,12 +518,9 @@ export default function DoctorDashboard() {
                                     'medium'}{' '}
                                   confidence
                                 </p>
-
                               </div>
 
-                              {/* Field content */}
                               <div>
-
                                 <input
                                   value={
                                     edits[field] ??
@@ -549,7 +537,6 @@ export default function DoctorDashboard() {
                                 />
 
                                 <div className="mt-2 flex flex-wrap gap-2">
-
                                   <span className="rounded-full bg-clinic-50 px-2 py-1 text-xs text-clinic-800">
                                     Source:{' '}
                                     {ev?.source ||
@@ -595,40 +582,122 @@ export default function DoctorDashboard() {
                                   >
                                     Reject
                                   </button>
-
                                 </div>
-
                               </div>
-
                             </div>
-
                           </div>
                         );
                       }
                     )}
-
                   </div>
-
                 </div>
+
+                {Object.keys(ayushHistory).length > 0 && (
+                  <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-clinic-500">
+                          AYUSH
+                        </p>
+                        <h2 className="mt-1 font-display text-xl font-semibold text-ink">
+                          AYUSH Clinical Summary
+                        </h2>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setTab('ayush')}
+                        className="rounded-full border border-clinic-200 px-4 py-2 text-sm text-clinic-700"
+                      >
+                        View full AYUSH history
+                      </button>
+                    </div>
+
+                    <p className="mt-2 text-sm text-muted">
+                      Structured patient-reported AYUSH history is available for physician review.
+                    </p>
+                  </div>
+                )}
               </>
             )}
 
-            {/* CONVERSATION TAB */}
+            {tab === 'ayush' && (
+              <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-clinic-500">
+                      AYUSH · Physician review
+                    </p>
+
+                    <h2 className="mt-1 font-display text-2xl font-semibold text-ink">
+                      AYUSH Clinical Summary
+                    </h2>
+
+                    <p className="mt-2 text-sm text-muted">
+                      Structured history reported by the patient. This is not an Ayurvedic diagnosis.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-clinic-50 px-3 py-1 text-xs font-medium text-clinic-800">
+                    Physician review required
+                  </span>
+                </div>
+
+                {ayushSections.length === 0 ? (
+                  <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    No AYUSH history has been recorded for this session.
+                  </div>
+                ) : (
+                  <div className="mt-8 space-y-6">
+                    {ayushSections.map(group => (
+                      <section
+                        key={group.section}
+                        className="rounded-xl border border-clinic-100 p-4"
+                      >
+                        <h3 className="text-lg font-semibold text-ink">
+                          {group.section}
+                        </h3>
+
+                        <div className="mt-3 divide-y divide-slate-100">
+                          {group.fields.map(field => (
+                            <div
+                              key={field}
+                              className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between"
+                            >
+                              <p className="font-medium text-ink">
+                                {ayushLabels[field] || field}
+                              </p>
+
+                              <p className="max-w-2xl text-sm font-medium text-clinic-700 sm:text-right">
+                                {ayushHistory[field]}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-6 rounded-xl bg-canvas p-4 text-sm text-muted">
+                  <strong className="text-ink">Source:</strong> Patient-reported AYUSH history ·
+                  available through the current Sehat Saathi session.
+                </div>
+              </div>
+            )}
+
             {tab === 'conversation' && (
               <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-
                 <h2 className="font-display text-xl font-semibold text-ink">
                   Original patient evidence
                 </h2>
 
                 <div className="mt-5 space-y-3">
-
                   {s.evidence.map(e => (
                     <div
                       key={`${e.field}-${e.timestamp}`}
                       className="rounded-xl border border-clinic-100 p-4"
                     >
-
                       <p className="text-xs uppercase tracking-wide text-muted">
                         {labelField(e.field)} ·{' '}
                         {e.language} ·{' '}
@@ -646,33 +715,50 @@ export default function DoctorDashboard() {
                           'unknown'
                         )}
                       </p>
-
                     </div>
                   ))}
-
                 </div>
-
               </div>
             )}
-            
-{/* DOCUMENTS TAB */}
-{tab === 'documents' && (
-  <div className="space-y-5">
-    <DocumentUpload />
 
-    {s.documents.map((doc: any) => (
-      <DoctorDocumentView
-        key={doc.id}
-        doc={doc}
-      />
-    ))}
-  </div>
-)}
+            {tab === 'documents' && (
+              <div className="space-y-4">
+                <DocumentUpload />
 
-            {/* TIMELINE TAB */}
+                <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                  <h2 className="font-display text-xl font-semibold">
+                    Document evidence register
+                  </h2>
+
+                  {s.documents.map(d => (
+                    <div
+                      key={d.id}
+                      className="mt-4 rounded-xl bg-canvas p-4"
+                    >
+                      <p className="font-medium">
+                        {d.name}
+                      </p>
+
+                      {d.entities.map(
+                        (e: any, i: number) => (
+                          <p
+                            key={i}
+                            className="mt-1 text-sm text-muted"
+                          >
+                            {e.type}: {e.value} ·{' '}
+                            {e.confidence} · source:{' '}
+                            {e.sourceText}
+                          </p>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {tab === 'timeline' && (
               <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-
                 <h2 className="font-display text-xl font-semibold">
                   Medical timeline
                 </h2>
@@ -682,7 +768,6 @@ export default function DoctorDashboard() {
                     key={e.id}
                     className="relative mt-5 pl-7"
                   >
-
                     <span className="absolute left-1 top-1 h-3 w-3 rounded-full bg-clinic-600" />
 
                     {i < timeline.length - 1 && (
@@ -703,549 +788,13 @@ export default function DoctorDashboard() {
                     <p className="text-sm text-muted">
                       {e.detail}
                     </p>
-
                   </div>
                 ))}
-
               </div>
             )}
-
           </section>
-
         </div>
-
       </main>
-
-    </div>
-  );
-}
-
-function DoctorDocumentView({ doc }: { doc: any }) {
-  const structured = doc.structuredData;
-  const attentionItems = doc.attentionItems ?? [];
-
-  const sourceUrl = doc.sourceDocument?.url
-    ? doc.sourceDocument.url.startsWith("http")
-      ? doc.sourceDocument.url
-      : `${BASE_URL}${doc.sourceDocument.url}`
-    : null;
-
-  return (
-    <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-      {/* DOCUMENT HEADER */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-display text-xl font-semibold text-ink">
-            {doc.name || doc.sourceDocument?.originalName || "Medical Document"}
-          </h3>
-
-          <p className="mt-1 text-sm text-muted">
-            Uploaded{" "}
-            {doc.uploadedAt
-              ? new Date(doc.uploadedAt).toLocaleString()
-              : "Unknown date"}
-          </p>
-        </div>
-
-        <span className="rounded-full bg-clinic-50 px-3 py-1 text-xs font-semibold text-clinic-700">
-          {doc.extractionStatus || "Processed"}
-        </span>
-      </div>
-
-      {/* DOCTOR ATTENTION */}
-      {attentionItems.length > 0 && (
-        <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-          <h4 className="font-semibold text-red-800">
-            Doctor Attention
-          </h4>
-
-          <div className="mt-3 space-y-3">
-            {attentionItems.map((item: any, index: number) => (
-              <div
-                key={`${item.name || "attention"}-${index}`}
-                className="rounded-lg border border-red-200 bg-white p-3"
-              >
-                <p className="font-semibold text-red-800">
-                  {item.name || "Medical result"}
-                </p>
-
-                {item.patientValue && (
-                  <p className="mt-1 text-sm text-ink">
-                    Patient value:{" "}
-                    <span className="font-medium">
-                      {item.patientValue}
-                    </span>
-                  </p>
-                )}
-
-                {item.referenceRange && (
-                  <p className="mt-1 text-sm text-muted">
-                    Reference range: {item.referenceRange}
-                  </p>
-                )}
-
-                {item.comparison && (
-                  <p className="mt-1 text-sm text-red-700">
-                    {item.comparison}
-                  </p>
-                )}
-
-                {item.status && (
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-red-700">
-                    Status: {item.status}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* STRUCTURED MEDICAL DATA */}
-      {structured && (
-        <StructuredDoctorDocument data={structured} />
-      )}
-
-      {/* ORIGINAL DOCUMENT */}
-      {sourceUrl && (
-        <div className="mt-5 rounded-xl border border-clinic-100 bg-canvas p-4">
-          <p className="font-semibold text-ink">
-            Original source
-          </p>
-
-          <p className="mt-1 text-sm text-muted">
-            Verify the extracted information against the original document.
-          </p>
-
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-block rounded-full border border-clinic-200 px-4 py-2 text-sm font-medium text-clinic-700"
-          >
-            View original document
-          </a>
-
-          {doc.type?.startsWith("image/") && (
-            <img
-              src={sourceUrl}
-              alt={doc.name || "Original medical document"}
-              className="mt-4 max-h-[500px] w-full rounded-xl border border-clinic-100 object-contain"
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function StructuredDoctorDocument({ data }: { data: any }) {
-  return (
-    <div className="mt-5 space-y-4">
-
-      {/* PATIENT INFORMATION */}
-      {data.patient && (
-        <DoctorSection title="Patient Information">
-          <DoctorField label="Name" value={data.patient.name} />
-          <DoctorField label="Age" value={data.patient.age} />
-          <DoctorField label="Sex" value={data.patient.sex} />
-          <DoctorField
-            label="Date of Birth"
-            value={data.patient.dateOfBirth}
-          />
-          <DoctorField
-            label="Patient ID"
-            value={data.patient.patientId}
-          />
-        </DoctorSection>
-      )}
-
-      {/* VISIT INFORMATION */}
-      {data.visit && (
-        <DoctorSection title="Visit Information">
-          <DoctorField label="Date" value={data.visit.date} />
-          <DoctorField
-            label="Department"
-            value={data.visit.department}
-          />
-          <DoctorField label="Doctor" value={data.visit.doctor} />
-          <DoctorField
-            label="Facility"
-            value={data.visit.facility}
-          />
-        </DoctorSection>
-      )}
-
-      {/* CHIEF COMPLAINTS */}
-      {Array.isArray(data.chiefComplaints) &&
-        data.chiefComplaints.length > 0 && (
-          <DoctorSection title="Chief Complaints">
-            <div className="space-y-2">
-              {data.chiefComplaints.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  <p className="font-medium text-ink">
-                    {item.complaint ||
-                      item.name ||
-                      item.text ||
-                      "Complaint"}
-                  </p>
-
-                  {item.duration && (
-                    <p className="mt-1 text-sm text-muted">
-                      Duration: {item.duration}
-                    </p>
-                  )}
-
-                  {item.severity && (
-                    <p className="mt-1 text-sm text-muted">
-                      Severity: {item.severity}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* VITALS */}
-      {Array.isArray(data.vitals) && data.vitals.length > 0 && (
-        <DoctorSection title="Vitals">
-          <div className="space-y-2">
-            {data.vitals.map((item: any, index: number) => (
-              <MedicalResultRow
-                key={index}
-                item={item}
-              />
-            ))}
-          </div>
-        </DoctorSection>
-      )}
-
-      {/* CLINICAL EXAMINATION */}
-      {data.clinicalExamination && (
-        <DoctorSection title="Clinical Examination">
-          {Object.entries(data.clinicalExamination).map(
-            ([key, value]: [string, any]) => (
-              <DoctorField
-                key={key}
-                label={key}
-                value={value}
-              />
-            ),
-          )}
-        </DoctorSection>
-      )}
-
-      {/* PREVIOUS VISITS */}
-      {Array.isArray(data.previousVisits) &&
-        data.previousVisits.length > 0 && (
-          <DoctorSection title="Previous Visit History">
-            <div className="space-y-3">
-              {data.previousVisits.map((visit: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  {visit.date && (
-                    <p className="font-medium text-ink">
-                      {visit.date}
-                    </p>
-                  )}
-
-                  {visit.complaint && (
-                    <p className="mt-1 text-sm text-muted">
-                      Complaint: {visit.complaint}
-                    </p>
-                  )}
-
-                  {visit.diagnosis && (
-                    <p className="mt-1 text-sm text-muted">
-                      Diagnosis: {visit.diagnosis}
-                    </p>
-                  )}
-
-                  {visit.treatment && (
-                    <p className="mt-1 text-sm text-muted">
-                      Treatment: {visit.treatment}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* LABORATORY RESULTS */}
-      {Array.isArray(data.laboratoryResults) &&
-        data.laboratoryResults.length > 0 && (
-          <DoctorSection title="Laboratory Results">
-            <div className="space-y-2">
-              {data.laboratoryResults.map(
-                (item: any, index: number) => (
-                  <MedicalResultRow
-                    key={index}
-                    item={item}
-                  />
-                ),
-              )}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* DIAGNOSES */}
-      {Array.isArray(data.diagnoses) &&
-        data.diagnoses.length > 0 && (
-          <DoctorSection title="Diagnosis">
-            <div className="space-y-2">
-              {data.diagnoses.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                >
-                  <p className="font-medium text-ink">
-                    {typeof item === "string"
-                      ? item
-                      : item.name ||
-                        item.diagnosis ||
-                        item.text ||
-                        "Diagnosis"}
-                  </p>
-
-                  {typeof item === "object" && item.type && (
-                    <p className="mt-1 text-sm text-muted">
-                      Type: {item.type}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* MEDICATIONS */}
-      {Array.isArray(data.medications) &&
-        data.medications.length > 0 && (
-          <DoctorSection title="Medications">
-            <div className="space-y-3">
-              {data.medications.map(
-                (medicine: any, index: number) => (
-                  <div
-                    key={index}
-                    className="rounded-lg border border-clinic-100 bg-canvas p-3"
-                  >
-                    <p className="font-semibold text-ink">
-                      {medicine.name ||
-                        medicine.medicine ||
-                        medicine.drug ||
-                        "Medicine"}
-                    </p>
-
-                    {medicine.dose && (
-                      <p className="mt-1 text-sm text-muted">
-                        Dose: {medicine.dose}
-                      </p>
-                    )}
-
-                    {medicine.frequency && (
-                      <p className="mt-1 text-sm text-muted">
-                        Frequency: {medicine.frequency}
-                      </p>
-                    )}
-
-                    {medicine.duration && (
-                      <p className="mt-1 text-sm text-muted">
-                        Duration: {medicine.duration}
-                      </p>
-                    )}
-
-                    {medicine.route && (
-                      <p className="mt-1 text-sm text-muted">
-                        Route: {medicine.route}
-                      </p>
-                    )}
-
-                    {medicine.remarks && (
-                      <p className="mt-1 text-sm text-muted">
-                        Remarks: {medicine.remarks}
-                      </p>
-                    )}
-                  </div>
-                ),
-              )}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* ADVICE */}
-      {Array.isArray(data.advice) &&
-        data.advice.length > 0 && (
-          <DoctorSection title="Advice & Lifestyle Recommendations">
-            <div className="space-y-2">
-              {data.advice.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-clinic-100 bg-canvas p-3 text-sm text-ink"
-                >
-                  {typeof item === "string"
-                    ? item
-                    : item.text ||
-                      item.advice ||
-                      item.description ||
-                      "Advice"}
-                </div>
-              ))}
-            </div>
-          </DoctorSection>
-        )}
-
-      {/* FOLLOW-UP */}
-      {data.followUp && (
-        <DoctorSection title="Follow-Up">
-          <DoctorField
-            label="Date"
-            value={data.followUp.date}
-          />
-          <DoctorField
-            label="Instructions"
-            value={data.followUp.instructions}
-          />
-          <DoctorField
-            label="Plan"
-            value={data.followUp.plan}
-          />
-        </DoctorSection>
-      )}
-    </div>
-  );
-}
-
-
-function MedicalResultRow({ item }: { item: any }) {
-  const name =
-    item.name ||
-    item.test ||
-    item.parameter ||
-    item.label ||
-    "Result";
-
-  const patientValue =
-    item.patientValue ??
-    item.value ??
-    item.result ??
-    item.patientResult;
-
-  const referenceRange =
-    item.referenceRange ??
-    item.normalRange ??
-    item.range;
-
-  const comparison =
-    item.comparison ??
-    item.status;
-
-  const needsAttention =
-    item.status === "high" ||
-    item.status === "low" ||
-    item.status === "outside_range" ||
-    item.status === "attention" ||
-    item.requiresAttention === true;
-
-  return (
-    <div className="rounded-lg border border-clinic-100 bg-canvas p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-ink">
-            {name}
-          </p>
-
-          <p className="mt-1 text-sm text-ink">
-            Patient result:{" "}
-            <span className="font-medium">
-              {patientValue ?? "Not available"}
-            </span>
-          </p>
-
-          {referenceRange && (
-            <p className="mt-1 text-sm text-muted">
-              Reference range: {referenceRange}
-            </p>
-          )}
-
-          {comparison && (
-            <p
-              className={`mt-1 text-sm ${
-                needsAttention
-                  ? "font-medium text-red-700"
-                  : "text-muted"
-              }`}
-            >
-              {comparison}
-            </p>
-          )}
-        </div>
-
-        {needsAttention && (
-          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-            Doctor attention
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-function DoctorSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-clinic-100 bg-white p-4">
-      <h4 className="font-display text-lg font-semibold text-ink">
-        {title}
-      </h4>
-
-      <div className="mt-3 space-y-2">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-
-function DoctorField({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-x-2 gap-y-1 rounded-lg bg-canvas px-3 py-2">
-      <span className="text-sm font-medium text-ink">
-        {label}:
-      </span>
-
-      <span className="text-sm text-muted">
-        {typeof value === "object"
-          ? JSON.stringify(value)
-          : String(value)}
-      </span>
     </div>
   );
 }
