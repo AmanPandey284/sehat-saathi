@@ -1,20 +1,550 @@
-import { useState } from 'react';
-import { ocrDocument } from '../../services/api';
-import { usePatientSession } from '../patient/state/PatientSessionContext';
+import { useState, type ReactNode } from "react";
+import { ocrDocument, BASE_URL } from "../../services/api";
+import { usePatientSession } from "../patient/state/PatientSessionContext";
 
-export default function DocumentUpload(){
- const {documents,addDocument,removeDocument}=usePatientSession(); const [busy,setBusy]=useState(false); const [message,setMessage]=useState('');
- const process=async(file:File)=>{setBusy(true);setMessage(`Reading ${file.name}…`);try{const r=await ocrDocument(file);addDocument({id:crypto.randomUUID(),name:r.name,type:file.type||r.type,uploadedAt:r.processedAt,text:r.text,extractionStatus:r.extractionStatus==='extracted'?'extracted':'ocr',entities:r.entities,pages:r.pages,previewUrl:file.type.startsWith('image/')?URL.createObjectURL(file):undefined});setMessage(`${file.name} processed successfully.`);}catch(e){setMessage(e instanceof Error?e.message:'Could not process this document.');}finally{setBusy(false);}};
- const onFiles=(files:FileList|null)=>{if(!files?.length)return;const file=files[0];if(file.size>8*1024*1024){setMessage('Please choose a file smaller than 8 MB.');return;}void process(file);};
- return <section className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
-  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-display text-xl font-semibold text-ink">Previous medical records</h2><p className="mt-1 text-sm text-muted">Upload a prescription, lab report or discharge summary. Images and PDFs are processed by the OCR service.</p></div><button onClick={()=>addDocument({id:crypto.randomUUID(),name:'Demo_Lab_Report.txt',type:'text/plain',uploadedAt:new Date().toISOString(),text:'Date: 14 Aug 2026\nHemoglobin: 10.2 g/dL\nGlucose: 156 mg/dL\nMedication: Metformin 500 mg\nHistory: Diabetes',extractionStatus:'extracted',entities:[{type:'Investigation',value:'Hemoglobin: 10.2 g/dL',confidence:'high',sourceText:'Hemoglobin: 10.2 g/dL',page:1},{type:'Investigation',value:'Glucose: 156 mg/dL',confidence:'high',sourceText:'Glucose: 156 mg/dL',page:1},{type:'Medication',value:'Metformin',confidence:'high',sourceText:'Medication: Metformin 500 mg',page:1},{type:'Diagnosis/History',value:'Diabetes',confidence:'medium',sourceText:'History: Diabetes',page:1}],pages:[{page:1,text:'Date: 14 Aug 2026\nHemoglobin: 10.2 g/dL\nGlucose: 156 mg/dL\nMedication: Metformin 500 mg\nHistory: Diabetes',confidence:'high'}]})} className="rounded-full border border-clinic-200 px-4 py-2 text-sm font-medium text-clinic-700">Add demo report</button></div>
-  <label className="mt-5 block cursor-pointer rounded-xl border-2 border-dashed border-clinic-200 p-8 text-center hover:bg-clinic-50"><span className="font-medium text-clinic-700">Choose image, PDF or text document</span><span className="mt-1 block text-sm text-muted">Maximum 8 MB</span><input className="sr-only" type="file" accept=".pdf,.txt,.csv,.md,image/*" onChange={e=>onFiles(e.target.files)}/></label>
-  {busy&&<p className="mt-3 text-sm text-muted">{message}</p>}{!busy&&message&&<p className="mt-3 text-sm text-clinic-700">{message}</p>}
-  <div className="mt-5 space-y-4">{documents.map(doc=><DocumentCard key={doc.id} doc={doc} onRemove={()=>removeDocument(doc.id)}/>)}</div>
- </section>
+export default function DocumentUpload() {
+  const { documents, addDocument, removeDocument } = usePatientSession();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const process = async (file: File) => {
+    setBusy(true);
+    setMessage(`Reading ${file.name}…`);
+
+    try {
+      const r: any = await ocrDocument(file);
+      const previewUrl = file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : undefined;
+
+      addDocument({
+        id: crypto.randomUUID(),
+        name: r.name,
+        type: file.type || r.type,
+        uploadedAt: r.processedAt,
+        text: r.text,
+        extractionStatus:
+          r.extractionStatus === "extracted"
+            ? "extracted"
+            : "ocr",
+        entities: r.entities ?? [],
+        pages: r.pages ?? [],
+        previewUrl,
+        structuredData: r.structuredData ?? null,
+        attentionItems: r.attentionItems ?? [],
+        sourceDocument: r.sourceDocument ?? null,
+      } as any);
+
+      setMessage(`${file.name} processed successfully.`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not process this document.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+
+    const file = files[0];
+
+    if (file.size > 8 * 1024 * 1024) {
+      setMessage("Please choose a file smaller than 8 MB.");
+      return;
+    }
+
+    void process(file);
+  };
+
+  return (
+    <section className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+      <div>
+        <h2 className="font-display text-xl font-semibold text-ink">
+          Previous medical records
+        </h2>
+
+        <p className="mt-1 text-sm text-muted">
+          Upload a prescription, laboratory report or discharge summary.
+          Sehat Saathi extracts the medical information into structured
+          sections.
+        </p>
+      </div>
+
+      <label className="mt-5 block cursor-pointer rounded-xl border-2 border-dashed border-clinic-200 p-8 text-center hover:bg-clinic-50">
+        <span className="font-medium text-clinic-700">
+          Choose image, PDF or text document
+        </span>
+
+        <span className="mt-1 block text-sm text-muted">
+          Maximum 8 MB
+        </span>
+
+        <input
+          className="sr-only"
+          type="file"
+          accept=".pdf,.txt,.csv,.md,image/*"
+          onChange={(event) => onFiles(event.target.files)}
+        />
+      </label>
+
+      {busy && (
+        <p className="mt-3 text-sm text-muted">
+          {message}
+        </p>
+      )}
+
+      {!busy && message && (
+        <p className="mt-3 text-sm text-clinic-700">
+          {message}
+        </p>
+      )}
+
+      <div className="mt-5 space-y-5">
+        {documents.map((doc: any) => (
+          <StructuredDocumentCard
+            key={doc.id}
+            doc={doc}
+            onRemove={() => removeDocument(doc.id)}
+          />
+        ))}
+      </div>
+    </section>
+  );
 }
-function DocumentCard({doc,onRemove}:{doc:any;onRemove:()=>void}){const [show,setShow]=useState(false);const [selected,setSelected]=useState<any|null>(null);const sourceText=selected?.sourceText||'';const source=doc.text||'';let preview=source;if(sourceText){const idx=source.toLowerCase().indexOf(sourceText.toLowerCase());if(idx>=0)preview=<><span>{source.slice(0,idx)}</span><mark className="rounded bg-yellow-200 px-1 text-ink">{source.slice(idx,idx+sourceText.length)}</mark><span>{source.slice(idx+sourceText.length)}</span></>;}return <article className="rounded-xl border border-clinic-100 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium text-ink">{doc.name}</p><p className="text-xs text-muted">📄 Scanned report → OCR → structured data · {doc.extractionStatus === 'ocr' ? 'OCR processed' : doc.extractionStatus==='extracted' ? 'Text extracted' : 'Preview only'} · {new Date(doc.uploadedAt).toLocaleString()}</p></div><button onClick={onRemove} className="text-sm text-flag-700">Remove</button></div>
- {doc.entities.length>0&&<div className="mt-3 flex flex-wrap gap-2">{doc.entities.map((e:any,i:number)=><button type="button" onClick={()=>setSelected(e)} key={i} className={`rounded-full px-3 py-1 text-xs ${e.confidence==='high'?'bg-clinic-50 text-clinic-800':'bg-amber-50 text-amber-800'}`}>{e.type}: {e.value}</button>)}</div>}
- <button onClick={()=>setShow(!show)} className="mt-4 text-sm font-medium text-clinic-700">{show?'Hide evidence':'View extracted evidence'}</button>
- {show&&<div className="mt-3 space-y-3"><div className="max-h-44 overflow-auto rounded-lg bg-canvas p-3 text-xs text-muted whitespace-pre-wrap">{preview||'No text extracted.'}</div>{selected&&<p className="text-xs text-muted">Selected evidence: {selected.type} · confidence {selected.confidence}{selected.page?` · page ${selected.page}`:''}</p>}<div className="grid gap-3 sm:grid-cols-2">{doc.entities.map((e:any,i:number)=><button type="button" onClick={()=>setSelected(e)} key={i} className="rounded-lg border border-clinic-50 p-3 text-left hover:bg-clinic-50"><p className="text-sm font-medium text-ink">{e.value}</p><p className="text-xs text-muted">Source: {e.sourceText} · {e.confidence}{e.page?` · page ${e.page}`:''}</p></button>)}</div></div>}
- </article>}
+
+function StructuredDocumentCard({
+  doc,
+  onRemove,
+}: {
+  doc: any;
+  onRemove: () => void;
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+  const data = doc.structuredData;
+  const attentionItems = doc.attentionItems ?? [];
+
+  const sourceUrl = doc.sourceDocument?.url
+    ? doc.sourceDocument.url.startsWith("http")
+      ? doc.sourceDocument.url
+      : `${BASE_URL}${doc.sourceDocument.url}`
+    : doc.previewUrl;
+
+  return (
+    <article className="rounded-xl border border-clinic-100 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-ink">
+            {doc.name}
+          </p>
+
+          <p className="mt-1 text-xs text-muted">
+            Original document → OCR → structured medical information
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-sm text-red-700"
+        >
+          Remove
+        </button>
+      </div>
+
+      {attentionItems.length > 0 && (
+        <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="font-semibold text-red-900">
+            Doctor attention
+          </h3>
+
+          <div className="mt-3 space-y-3">
+            {attentionItems.map((item: any, index: number) => (
+              <div
+                key={`${item.name}-${index}`}
+                className="rounded-lg border border-red-200 bg-white p-3"
+              >
+                <p className="font-semibold text-ink">
+                  {item.name}
+                </p>
+
+                <p className="mt-1 text-sm">
+                  Patient result:{" "}
+                  <strong>
+                    {item.patientValue ?? "Not available"}
+                  </strong>
+                </p>
+
+                <p className="mt-1 text-sm text-muted">
+                  Reference:{" "}
+                  {item.referenceRange ?? "Not available"}
+                </p>
+
+                {item.comparison && (
+                  <p className="mt-1 text-sm font-medium text-red-700">
+                    {item.comparison}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data ? (
+        <div className="mt-5 space-y-4">
+          <Section title="Patient Information">
+            <Field label="Patient ID" value={data.patient?.patient_id} />
+            <Field label="Name" value={data.patient?.name} />
+            <Field label="Age" value={data.patient?.age} />
+            <Field label="Gender" value={data.patient?.gender} />
+            <Field label="Contact" value={data.patient?.contact} />
+            <Field label="Address" value={data.patient?.address} />
+            <Field label="Allergies" value={data.patient?.allergies} />
+          </Section>
+
+          <Section title="Visit Information">
+            <Field label="Visit date" value={data.visit?.visit_date} />
+            <Field
+              label="Consultation time"
+              value={data.visit?.consultation_time}
+            />
+            <Field label="Doctor" value={data.visit?.doctor} />
+            <Field label="Department" value={data.visit?.department} />
+            <Field label="Visit type" value={data.visit?.visit_type} />
+            <Field
+              label="Referred by"
+              value={data.visit?.referred_by}
+            />
+          </Section>
+
+          <Section title="Chief Complaints">
+            {(data.chiefComplaints ?? []).map(
+              (item: any, index: number) => (
+                <div
+                  key={index}
+                  className="rounded-lg bg-canvas p-3"
+                >
+                  <p className="font-medium">
+                    {index + 1}. {item.complaint}
+                  </p>
+
+                  {item.duration && (
+                    <p className="mt-1 text-sm text-muted">
+                      Duration: {item.duration}
+                    </p>
+                  )}
+                </div>
+              ),
+            )}
+          </Section>
+
+          <Section title="Vitals">
+            {(data.vitals ?? []).map(
+              (item: any, index: number) => (
+                <MedicalResult
+                  key={index}
+                  item={item}
+                />
+              ),
+            )}
+          </Section>
+
+          <Section title="Clinical Examination">
+            <Field
+              label="General"
+              value={data.clinicalExamination?.general}
+            />
+            <Field
+              label="Respiratory"
+              value={data.clinicalExamination?.respiratory}
+            />
+            <Field
+              label="Cardiovascular"
+              value={
+                data.clinicalExamination?.cardiovascular
+              }
+            />
+            <Field
+              label="Abdomen"
+              value={data.clinicalExamination?.abdomen}
+            />
+            <Field
+              label="CNS"
+              value={data.clinicalExamination?.cns}
+            />
+            <Field
+              label="Others"
+              value={data.clinicalExamination?.other}
+            />
+          </Section>
+
+          <Section title="Previous Visits">
+            {(data.previousVisits ?? []).map(
+              (item: any, index: number) => (
+                <div
+                  key={index}
+                  className="rounded-lg bg-canvas p-3"
+                >
+                  <p className="font-medium">
+                    {item.date}
+                  </p>
+
+                  <p className="mt-1 text-sm">
+                    Complaints:{" "}
+                    {item.complaints ?? "Not reported"}
+                  </p>
+
+                  <p className="mt-1 text-sm">
+                    Diagnosis:{" "}
+                    {item.diagnosis ?? "Not reported"}
+                  </p>
+
+                  <p className="mt-1 text-sm">
+                    Treatment:{" "}
+                    {item.treatment ?? "Not reported"}
+                  </p>
+                </div>
+              ),
+            )}
+          </Section>
+
+          <Section title="Laboratory Results">
+            {(data.laboratoryResults ?? []).map(
+              (item: any, index: number) => (
+                <MedicalResult
+                  key={index}
+                  item={item}
+                />
+              ),
+            )}
+          </Section>
+
+          <Section title="Diagnoses">
+            {(data.diagnoses ?? []).map(
+              (item: any, index: number) => (
+                <div
+                  key={index}
+                  className="rounded-lg bg-canvas p-3"
+                >
+                  {index + 1}. {item.diagnosis}
+                </div>
+              ),
+            )}
+          </Section>
+
+          <Section title="Medications">
+            {(data.medications ?? []).map(
+              (item: any, index: number) => (
+                <div
+                  key={index}
+                  className="rounded-lg bg-canvas p-4"
+                >
+                  <p className="font-semibold">
+                    {index + 1}. {item.name}
+                  </p>
+
+                  <Field label="Dose" value={item.dose} />
+                  <Field
+                    label="Frequency"
+                    value={item.frequency}
+                  />
+                  <Field
+                    label="Duration"
+                    value={item.duration}
+                  />
+                  <Field
+                    label="Remarks"
+                    value={item.remarks}
+                  />
+                </div>
+              ),
+            )}
+          </Section>
+
+          <Section title="Advice">
+            {(data.advice ?? []).map(
+              (item: any, index: number) => (
+                <div
+                  key={index}
+                  className="rounded-lg bg-canvas p-3"
+                >
+                  • {item.text}
+                </div>
+              ),
+            )}
+          </Section>
+
+          <Section title="Follow-Up">
+            <Field
+              label="Date"
+              value={data.followUp?.date}
+            />
+            <Field
+              label="Instruction"
+              value={data.followUp?.instruction}
+            />
+          </Section>
+        </div>
+      ) : (
+        <div className="mt-5 rounded-lg bg-canvas p-4 text-sm text-muted">
+          Structured medical data is not available for this document.
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-clinic-600 px-4 py-2 text-sm font-medium text-white"
+          >
+            Open Original
+          </a>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setShowRaw((value) => !value)}
+          className="rounded-full border border-clinic-200 px-4 py-2 text-sm font-medium text-clinic-700"
+        >
+          {showRaw ? "Hide OCR text" : "View OCR text"}
+        </button>
+      </div>
+
+      {showRaw && (
+        <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
+          {doc.text || "No OCR text available."}
+        </pre>
+      )}
+
+      {doc.previewUrl && (
+        <div className="mt-4">
+          <p className="text-sm font-semibold text-ink">
+            Original source
+          </p>
+
+          <img
+            src={doc.previewUrl}
+            alt="Original medical document"
+            className="mt-3 max-h-[700px] w-full rounded-xl border object-contain"
+          />
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-clinic-100 bg-white p-4">
+      <h3 className="font-semibold text-ink">
+        {title}
+      </h3>
+
+      <div className="mt-3 space-y-2">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+}: {
+  label: string;
+  value?: unknown;
+}) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  return (
+    <p className="text-sm">
+      <span className="font-medium">{label}:</span>{" "}
+      <span>{String(value)}</span>
+    </p>
+  );
+}
+
+function MedicalResult({ item }: { item: any }) {
+  const attention = Boolean(item.attention);
+
+  return (
+    <div
+      className={`rounded-xl border p-4 ${
+        attention
+          ? "border-red-200 bg-red-50"
+          : "border-clinic-100 bg-canvas"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-semibold">
+          {item.name ?? item.testName ?? "Medical result"}
+        </p>
+
+        {attention && (
+          <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700">
+            Attention
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+        <p>
+          Patient result:{" "}
+          <strong>
+            {item.patientValue ?? "Not reported"}
+          </strong>
+        </p>
+
+        {item.previousValue && (
+          <p>
+            Previous:{" "}
+            <strong>{item.previousValue}</strong>
+          </p>
+        )}
+
+        <p>
+          Reference:{" "}
+          <strong>
+            {item.referenceRange ?? "Not available"}
+          </strong>
+        </p>
+
+        {item.status && (
+          <p>
+            Status: <strong>{item.status}</strong>
+          </p>
+        )}
+      </div>
+
+      {item.comparison && (
+        <p
+          className={`mt-2 text-sm font-medium ${
+            attention
+              ? "text-red-700"
+              : "text-clinic-700"
+          }`}
+        >
+          {item.comparison}
+        </p>
+      )}
+    </div>
+  );
+}

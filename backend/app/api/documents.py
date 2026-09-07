@@ -209,7 +209,7 @@ def _ocr_image(
 
         config = (
             "--oem 3 "
-            "--psm 11 "
+            "--psm 3 "
             "-c preserve_interword_spaces=1"
         )
 
