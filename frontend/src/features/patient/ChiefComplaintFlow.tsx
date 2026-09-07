@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import AppHeader from "../../components/AppHeader";
+import VoiceInputButton from "../../components/VoiceInputButton";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { classifyFreeText, classifyFromQuickButton, SUPPORTED_COMPLAINTS, type ComplaintClassification } from "./services/complaintClassifier";
 import { usePatientSession } from "./state/PatientSessionContext";
@@ -11,7 +12,7 @@ import { analyzePatientInput } from "../../adaptiveQuestionEngine";
 type Step = "input" | "unknown" | "confirm";
 
 export default function ChiefComplaintFlow() {
-  const { t } = useLanguage(); const navigate = useNavigate();
+  const { t, language } = useLanguage(); const navigate = useNavigate();
   const { setChiefComplaint, setSafetyFlags, consentGranted } = usePatientSession();
   useEffect(()=>{if(!consentGranted)navigate('/patient/consent',{replace:true})},[consentGranted,navigate]);
   const [step,setStep]=useState<Step>("input"); const [draftInput,setDraftInput]=useState("");
@@ -116,6 +117,13 @@ function handleContinue() {
       <h1 className="font-display text-3xl font-semibold text-ink">{t.complaint.heading}</h1>
       <label htmlFor="complaint-input" className="sr-only">{t.complaint.textareaLabel}</label>
       <textarea id="complaint-input" value={draftInput} onChange={e=>setDraftInput(e.target.value)} placeholder={t.complaint.textareaPlaceholder} rows={4} className="mt-6 w-full rounded-xl border border-clinic-200 p-4 text-lg text-ink"/>
+      <div className="mt-3 flex items-center gap-3">
+        <VoiceInputButton
+          language={language}
+          onTranscript={(text) => { setDraftInput(text); setValidationError(null); }}
+        />
+        <span className="text-xs text-muted">{language==='hi'?'बोलकर भी अपनी समस्या बताएं':'Or describe your concern by speaking'}</span>
+      </div>
       {validationError&&<p role="alert" className="mt-2 text-sm text-flag-700">{validationError}</p>}
       <div className="mt-4 flex flex-wrap gap-3">
         {SUPPORTED_COMPLAINTS.map(id=><button key={id} type="button" onClick={()=>handleQuickButton(id)} className="rounded-full border border-clinic-200 bg-white px-5 py-3 text-base font-medium text-clinic-700 hover:bg-clinic-50">{t.complaint.quickButtons[id]}</button>)}

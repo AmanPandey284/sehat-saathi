@@ -18,6 +18,13 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
 export const translations = {
   en: {
     brand: "Sehat Saathi",
+    voice: {
+      speak: "Speak",
+      listening: "Listening…",
+      stop: "Stop listening",
+      unsupported: "Voice input is not supported in this browser",
+      answerBySpeaking: "Answer by speaking",
+    },
     status: {
       checking: "Checking backend…",
       online: "Backend connected",
@@ -124,6 +131,13 @@ export const translations = {
   },
   hi: {
     brand: "सेहत साथी",
+    voice: {
+      speak: "बोलें",
+      listening: "सुन रहा है…",
+      stop: "रिकॉर्डिंग रोकें",
+      unsupported: "इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है",
+      answerBySpeaking: "बोलकर जवाब दें",
+    },
     status: {
       checking: "बैकएंड जांचा जा रहा है…",
       online: "बैकएंड जुड़ा हुआ है",

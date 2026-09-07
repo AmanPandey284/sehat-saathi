@@ -1,9 +1,23 @@
 import { Link } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import { useLanguage } from "../i18n/LanguageContext";
+import { usePatientSession } from "../features/patient/state/PatientSessionContext";
+import { useNavigate } from "react-router-dom";
 
 export default function PatientLanding() {
   const { t } = useLanguage();
+  const { resetSession } = usePatientSession();
+  const navigate = useNavigate();
+
+  const startNewConsultation = () => {
+    // A new patient/consultation must never inherit answers or uploaded
+    // records from the previous consultation stored in browser state.
+    resetSession();
+    try {
+      sessionStorage.removeItem("sehatSaathi_adaptive_analysis");
+    } catch {}
+    navigate("/patient/consent");
+  };
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -19,12 +33,13 @@ export default function PatientLanding() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-4">
-            <Link
-              to="/patient/consent"
+            <button
+              type="button"
+              onClick={startNewConsultation}
               className="rounded-full bg-clinic-600 px-8 py-4 text-lg font-medium text-white shadow-sm transition hover:bg-clinic-700"
             >
               {t.landing.startButton}
-            </Link>
+            </button>
             <Link
               to="/doctor"
               className="rounded-full border border-clinic-600 px-8 py-4 text-lg font-medium text-clinic-700 transition hover:bg-clinic-50"

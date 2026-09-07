@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppHeader from "../../components/AppHeader";
+import VoiceInputButton from "../../components/VoiceInputButton";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { QuestionEngine } from "./engine/QuestionEngine";
 import { abdominalPainFlow } from "./engine/flows/abdominalPainFlow";
@@ -91,13 +92,8 @@ export default function AdaptiveHistoryFlow() {
     AdaptiveQuestion[]
   >([]);
 
-  const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
-const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
-  const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
-const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const [listening, setListening] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [evidenceLocal, setEvidenceLocal] = useState<
     Record<string, ReturnType<typeof normalizeClinicalAnswer>>
@@ -182,6 +178,43 @@ const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({
           : "I could not confidently understand that. Please choose an option or rephrase.",
       );
   };
+const goBackAdaptive = () => {
+  if (!currentAdaptiveQuestion) return;
+
+  if (adaptiveAnsweredIds.length === 0 || adaptiveQuestionIndex === 0) {
+    sessionStorage.removeItem("sehatSaathi_adaptive_analysis");
+    setAdaptiveAnalysis(null);
+    setAdaptiveQuestions([]);
+    setAdaptiveAnsweredIds([]);
+    setAdaptiveAnswers({});
+    setTyped("");
+    setDraft(null);
+    nav("/patient");
+    return;
+  }
+
+  const previousId = adaptiveAnsweredIds[adaptiveAnsweredIds.length - 1];
+  const previousIndex = adaptiveQuestions.findIndex(
+    (question) => question.id === previousId,
+  );
+
+  if (previousIndex < 0) {
+    nav("/patient");
+    return;
+  }
+
+  setAdaptiveQuestionIndex(previousIndex);
+  setTyped(adaptiveAnswers[previousId] ?? "");
+  setDraft(adaptiveAnswers[previousId] ?? null);
+  setAdaptiveAnsweredIds((ids) => ids.slice(0, -1));
+  setAdaptiveAnswers((answers) => {
+    const next = { ...answers };
+    delete next[previousId];
+    return next;
+  });
+  setError("");
+};
+
 const submitAdaptiveAnswer = () => {
   if (!currentAdaptiveQuestion || !adaptiveAnalysis) return;
 
@@ -386,45 +419,6 @@ setEvidence([
     }
     if (engine.goBack().ok) force((x) => x + 1);
   };
-  const startVoice = () => {
-    type SpeechCtor = new () => any;
-    const Ctor =
-      (
-        window as unknown as {
-          SpeechRecognition?: SpeechCtor;
-          webkitSpeechRecognition?: SpeechCtor;
-        }
-      ).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: SpeechCtor })
-        .webkitSpeechRecognition;
-    if (!Ctor) {
-      setError("Voice input is not supported here. You can type instead.");
-      return;
-    }
-    const rec = new Ctor();
-    rec.lang = language === "hi" ? "hi-IN" : "en-IN";
-    rec.onresult = (e: any) => {
-      const v = e.results?.[0]?.[0]?.transcript ?? "";
-      setTyped(v);
-      setListening(false);
-      setTimeout(() => {
-        setEvidenceLocal((x) => ({
-          ...x,
-          [active?.field ?? "voice"]: normalizeClinicalAnswer(
-            active?.field ?? "voice",
-            v,
-          ),
-        }));
-      }, 0);
-    };
-    rec.onerror = () => {
-      setListening(false);
-      setError("Voice input was unavailable. Please type your answer.");
-    };
-    rec.onend = () => setListening(false);
-    setListening(true);
-    rec.start();
-  };
   const speak = () => {
     if (!active) return;
     const u = new SpeechSynthesisUtterance(localized(active, language));
@@ -438,42 +432,68 @@ setEvidence([
         {hasAdaptiveQuestion && currentAdaptiveQuestion && (
   <div className="mb-6 rounded-2xl border border-clinic-200 bg-white p-6 shadow-sm">
     <p className="text-sm font-semibold uppercase tracking-wide text-clinic-700">
-      Relevant follow-up
+      {language === "hi" ? "संबंधित अगला सवाल" : "Relevant follow-up"}
     </p>
 
     <h2 className="mt-2 text-2xl font-semibold text-ink">
      {language === "hi"
-  ? currentAdaptiveQuestion.text
+  ? (currentAdaptiveQuestion.textHi ?? currentAdaptiveQuestion.text)
   : currentAdaptiveQuestion.text}
     </h2>
 
     <p className="mt-2 text-sm text-muted">
-      Question {adaptiveQuestionIndex + 1} of{" "}
+      {language === "hi" ? "सवाल" : "Question"} {adaptiveQuestionIndex + 1} {language === "hi" ? "/" : "of"}{" "}
       {adaptiveQuestions.length}
     </p>
+
+    <div className="mt-5 flex flex-wrap items-center gap-3">
+      <VoiceInputButton
+        language={language}
+        onTranscript={(text) => {
+          setTyped(text);
+          setDraft(text);
+          setError("");
+        }}
+      />
+      <span className="text-xs text-muted">
+        {language === "hi" ? "बोलकर भी जवाब दे सकते हैं" : "You can answer by speaking too"}
+      </span>
+    </div>
 
     {currentAdaptiveQuestion.type === "yes_no" && (
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <button
           type="button"
+          aria-pressed={typed.trim().toLowerCase() === "yes"}
           onClick={() => {
             setTyped("yes");
             setDraft("yes");
+            setError("");
           }}
-          className="rounded-xl border border-clinic-200 bg-white p-4 text-lg font-medium hover:border-clinic-500"
+          className={`rounded-xl border p-4 text-lg font-medium transition ${
+            typed.trim().toLowerCase() === "yes"
+              ? "border-clinic-600 bg-clinic-600 text-white shadow-sm"
+              : "border-clinic-200 bg-white text-clinic-700 hover:border-clinic-500"
+          }`}
         >
-          Yes
+          {language === "hi" ? "हाँ" : "Yes"}
         </button>
 
         <button
           type="button"
+          aria-pressed={typed.trim().toLowerCase() === "no"}
           onClick={() => {
             setTyped("no");
             setDraft("no");
+            setError("");
           }}
-          className="rounded-xl border border-clinic-200 bg-white p-4 text-lg font-medium hover:border-clinic-500"
+          className={`rounded-xl border p-4 text-lg font-medium transition ${
+            typed.trim().toLowerCase() === "no"
+              ? "border-clinic-600 bg-clinic-600 text-white shadow-sm"
+              : "border-clinic-200 bg-white text-clinic-700 hover:border-clinic-500"
+          }`}
         >
-          No
+          {language === "hi" ? "नहीं" : "No"}
         </button>
       </div>
     )}
@@ -484,7 +504,7 @@ setEvidence([
         onChange={(event) => {
           setTyped(event.target.value);
         }}
-        placeholder="Tell us more..."
+        placeholder={language === "hi" ? "थोड़ा और बताएं..." : "Tell us more..."}
         className="mt-6 min-h-28 w-full rounded-xl border border-clinic-200 p-4"
       />
     )}
@@ -492,17 +512,26 @@ setEvidence([
     {currentAdaptiveQuestion.type === "single" &&
       currentAdaptiveQuestion.options && (
         <div className="mt-6 grid gap-3">
-         {currentAdaptiveQuestion.options.map((option: string) => (
+         {currentAdaptiveQuestion.options.map((option: string, optionIndex: number) => (
             <button
               key={option}
               type="button"
+              aria-pressed={typed === option}
               onClick={() => {
                 setTyped(option);
                 setDraft(option);
+                setError("");
               }}
-              className="rounded-xl border border-clinic-200 bg-white p-4 text-left hover:border-clinic-500"
+              className={`rounded-xl border p-4 text-left transition ${
+                typed === option
+                  ? "border-clinic-600 bg-clinic-600 text-white shadow-sm"
+                  : "border-clinic-200 bg-white text-clinic-700 hover:border-clinic-500"
+              }`}
             >
-              {option}
+              {typed === option ? "✓ " : ""}
+              {language === "hi"
+                ? (currentAdaptiveQuestion.optionsHi?.[optionIndex] ?? option)
+                : option}
             </button>
           ))}
         </div>
@@ -514,13 +543,23 @@ setEvidence([
       </p>
     )}
 
-    <button
-      type="button"
-      onClick={submitAdaptiveAnswer}
-      className="mt-6 rounded-full bg-clinic-600 px-6 py-3 font-semibold text-white"
-    >
-      Continue
-    </button>
+    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <button
+        type="button"
+        onClick={goBackAdaptive}
+        className="inline-flex items-center justify-center gap-2 rounded-full border border-clinic-200 px-6 py-3 font-medium text-muted transition hover:bg-clinic-50"
+      >
+        <span aria-hidden="true" className="text-lg leading-none">←</span>
+        {language === "hi" ? "वापस" : "Back"}
+      </button>
+      <button
+        type="button"
+        onClick={submitAdaptiveAnswer}
+        className="rounded-full bg-clinic-600 px-6 py-3 font-semibold text-white"
+      >
+        {language === "hi" ? "आगे बढ़ें" : "Continue"}
+      </button>
+    </div>
   </div>
 )}
         <div className="flex items-center justify-between">
@@ -584,13 +623,14 @@ setEvidence([
                   >
                     Optional: answer in your own words
                   </label>
-                  <button
-                    onClick={startVoice}
-                    disabled={listening}
-                    className="rounded-full border border-clinic-200 px-3 py-1 text-sm"
-                  >
-                    {listening ? "Listening…" : "🎙 Speak"}
-                  </button>
+                  <VoiceInputButton
+                    language={language}
+                    onTranscript={(text) => {
+                      setTyped(text);
+                      setError("");
+                    }}
+                    className="min-h-10 px-4 py-2"
+                  />
                 </div>
                 <input
                   id="natural"
