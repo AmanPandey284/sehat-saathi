@@ -794,45 +794,39 @@ function MedicalResult({
         )}
       </div>
 
-      <div className="mt-3 space-y-3 text-sm">
-        <div>
-          <p className="font-semibold text-ink">
-            Patient Result
-          </p>
-          <p className="mt-1 text-muted">
-            {patientValue ?? "Not reported"}
-          </p>
-        </div>
+      <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+        <p>
+          Patient result:{" "}
+          <strong>
+            {patientValue ??
+              "Not reported"}
+          </strong>
+        </p>
 
         {previousValue && (
-          <div>
-            <p className="font-semibold text-ink">
-              Previous Value
-            </p>
-            <p className="mt-1 text-muted">
+          <p>
+            Previous:{" "}
+            <strong>
               {previousValue}
-            </p>
-          </div>
+            </strong>
+          </p>
         )}
 
-        <div>
-          <p className="font-semibold text-ink">
-            Reference Range
-          </p>
-          <p className="mt-1 text-muted">
-            {referenceRange ?? "Not available"}
-          </p>
-        </div>
+        <p>
+          Reference:{" "}
+          <strong>
+            {referenceRange ??
+              "Not available"}
+          </strong>
+        </p>
 
         {status && (
-          <div>
-            <p className="font-semibold text-ink">
-              Status
-            </p>
-            <p className="mt-1 text-muted">
+          <p>
+            Status:{" "}
+            <strong>
               {status}
-            </p>
-          </div>
+            </strong>
+          </p>
         )}
       </div>
 
@@ -887,14 +881,12 @@ function KeyValue({
   }
 
   return (
-    <div className="rounded-lg border border-clinic-50 bg-white p-4">
-      <p className="text-sm font-semibold text-ink">
-        {label}
-      </p>
+    <div className="flex gap-2 text-sm">
+      <span className="font-medium">
+        {label}:
+      </span>
 
-      <p className="mt-2 text-sm leading-6 text-muted">
-        {String(value)}
-      </p>
+      <span>{String(value)}</span>
     </div>
   );
 }

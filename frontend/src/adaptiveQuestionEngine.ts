@@ -327,4 +327,3 @@ export function adaptAfterAnswer(
   };
 }
 
-export type { AdaptiveQuestion } from "./adaptiveQuestionBank";

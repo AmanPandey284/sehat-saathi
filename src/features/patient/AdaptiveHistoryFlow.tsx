@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppHeader from "../../components/AppHeader";
+import VoiceInputButton from "../../components/VoiceInputButton";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { QuestionEngine } from "./engine/QuestionEngine";
 import { abdominalPainFlow } from "./engine/flows/abdominalPainFlow";
@@ -95,7 +96,6 @@ export default function AdaptiveHistoryFlow() {
 const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
   const [error, setError] = useState("");
-  const [listening, setListening] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [evidenceLocal, setEvidenceLocal] = useState<
     Record<string, ReturnType<typeof normalizeClinicalAnswer>>
@@ -384,45 +384,6 @@ setEvidence([
     }
     if (engine.goBack().ok) force((x) => x + 1);
   };
-  const startVoice = () => {
-    type SpeechCtor = new () => any;
-    const Ctor =
-      (
-        window as unknown as {
-          SpeechRecognition?: SpeechCtor;
-          webkitSpeechRecognition?: SpeechCtor;
-        }
-      ).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: SpeechCtor })
-        .webkitSpeechRecognition;
-    if (!Ctor) {
-      setError("Voice input is not supported here. You can type instead.");
-      return;
-    }
-    const rec = new Ctor();
-    rec.lang = language === "hi" ? "hi-IN" : "en-IN";
-    rec.onresult = (e: any) => {
-      const v = e.results?.[0]?.[0]?.transcript ?? "";
-      setTyped(v);
-      setListening(false);
-      setTimeout(() => {
-        setEvidenceLocal((x) => ({
-          ...x,
-          [active?.field ?? "voice"]: normalizeClinicalAnswer(
-            active?.field ?? "voice",
-            v,
-          ),
-        }));
-      }, 0);
-    };
-    rec.onerror = () => {
-      setListening(false);
-      setError("Voice input was unavailable. Please type your answer.");
-    };
-    rec.onend = () => setListening(false);
-    setListening(true);
-    rec.start();
-  };
   const speak = () => {
     if (!active) return;
     const u = new SpeechSynthesisUtterance(localized(active, language));
@@ -436,19 +397,33 @@ setEvidence([
         {hasAdaptiveQuestion && currentAdaptiveQuestion && (
   <div className="mb-6 rounded-2xl border border-clinic-200 bg-white p-6 shadow-sm">
     <p className="text-sm font-semibold uppercase tracking-wide text-clinic-700">
-      Relevant follow-up
+      {language === "hi" ? "संबंधित अगला सवाल" : "Relevant follow-up"}
     </p>
 
     <h2 className="mt-2 text-2xl font-semibold text-ink">
      {language === "hi"
-  ? currentAdaptiveQuestion.text
+  ? (currentAdaptiveQuestion.textHi ?? currentAdaptiveQuestion.text)
   : currentAdaptiveQuestion.text}
     </h2>
 
     <p className="mt-2 text-sm text-muted">
-      Question {adaptiveQuestionIndex + 1} of{" "}
+      {language === "hi" ? "सवाल" : "Question"} {adaptiveQuestionIndex + 1} {language === "hi" ? "/" : "of"}{" "}
       {adaptiveQuestions.length}
     </p>
+
+    <div className="mt-5 flex flex-wrap items-center gap-3">
+      <VoiceInputButton
+        language={language}
+        onTranscript={(text) => {
+          setTyped(text);
+          setDraft(text);
+          setError("");
+        }}
+      />
+      <span className="text-xs text-muted">
+        {language === "hi" ? "बोलकर भी जवाब दे सकते हैं" : "You can answer by speaking too"}
+      </span>
+    </div>
 
     {currentAdaptiveQuestion.type === "yes_no" && (
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -482,7 +457,7 @@ setEvidence([
         onChange={(event) => {
           setTyped(event.target.value);
         }}
-        placeholder="Tell us more..."
+        placeholder={language === "hi" ? "थोड़ा और बताएं..." : "Tell us more..."}
         className="mt-6 min-h-28 w-full rounded-xl border border-clinic-200 p-4"
       />
     )}
@@ -582,13 +557,14 @@ setEvidence([
                   >
                     Optional: answer in your own words
                   </label>
-                  <button
-                    onClick={startVoice}
-                    disabled={listening}
-                    className="rounded-full border border-clinic-200 px-3 py-1 text-sm"
-                  >
-                    {listening ? "Listening…" : "🎙 Speak"}
-                  </button>
+                  <VoiceInputButton
+                    language={language}
+                    onTranscript={(text) => {
+                      setTyped(text);
+                      setError("");
+                    }}
+                    className="min-h-10 px-4 py-2"
+                  />
                 </div>
                 <input
                   id="natural"
