@@ -8,6 +8,12 @@ import { abdominalPainFlow } from "./engine/flows/abdominalPainFlow";
 import { feverFlow } from "./engine/flows/feverFlow";
 import { coughFlow } from "./engine/flows/coughFlow";
 import { customComplaintFlow } from "./engine/flows/customComplaintFlow";
+import { eyeProblemsFlow } from "./engine/flows/eyeProblemsFlow";
+import { headacheFlow } from "./engine/flows/headacheFlow";
+import { backPainFlow } from "./engine/flows/backPainFlow";
+import { skinProblemsFlow } from "./engine/flows/skinProblemsFlow";
+import { jointPainFlow } from "./engine/flows/jointPainFlow";
+import { urinaryProblemsFlow } from "./engine/flows/urinaryProblemsFlow";
 import type {
   AnswerValue,
   QuestionDefinition,
@@ -31,6 +37,14 @@ const FLOWS: Record<string, QuestionFlow> = {
   abdominal_pain: abdominalPainFlow,
   fever: feverFlow,
   cough: coughFlow,
+  // Six new body-system routing flows
+  eye_problems: eyeProblemsFlow,
+  headache: headacheFlow,
+  back_pain: backPainFlow,
+  skin_problems: skinProblemsFlow,
+  joint_pain: jointPainFlow,
+  urinary_problems: urinaryProblemsFlow,
+  // Generic fallback — preserved unchanged
   custom: customComplaintFlow,
 };
 const yesNo = new Set(["yes", "no", "not_sure"]);
@@ -74,9 +88,18 @@ export default function AdaptiveHistoryFlow() {
     chiefComplaint,
     setHistoryAnswers,
     setEvidence,
+    safetyFlags,
     setSafetyFlags,
     setTimeline,
   } = usePatientSession();
+  useEffect(() => {
+    if (safetyFlags.some((f) => f.severity === "urgent")) {
+      nav("/patient/emergency", { replace: true });
+    }
+  }, [safetyFlags, nav]);
+  if (safetyFlags.some((f) => f.severity === "urgent")) {
+    return null;
+  }
   const flow = chiefComplaint ? FLOWS[chiefComplaint.complaintId] : null;
   const engineRef = useRef<QuestionEngine | null>(null);
   if (flow && !engineRef.current)
@@ -335,11 +358,6 @@ setEvidence([
       setError(r.error ?? "Please answer this question.");
       return;
     }
-    if (editing) {
-      setEditing(null);
-      force((x) => x + 1);
-      return;
-    }
     const stBeforeNext = engine.getState();
     const immediateFlags = evaluateSafety(stBeforeNext.answers);
     setSafetyFlags(immediateFlags);
@@ -357,6 +375,11 @@ setEvidence([
         buildTimeline(chiefComplaint, stBeforeNext.answers, [], undefined),
       );
       nav("/patient/emergency");
+      return;
+    }
+    if (editing) {
+      setEditing(null);
+      force((x) => x + 1);
       return;
     }
     const a = engine.goToNext();

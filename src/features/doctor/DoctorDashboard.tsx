@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { usePatientSession } from '../patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../history/recordUtils';
 import { buildFhirBundle } from '../history/fhir';
@@ -7,6 +7,12 @@ import { generateClinicalSummary } from '../history/summaryGenerator';
 import { generateSummary } from '../../services/api';
 import DocumentUpload from '../documents/DocumentUpload';
 import { detectConflicts } from '../history/conflictEngine';
+import { useDoctorAuth } from '../auth/DoctorAuthContext';
+import {
+  getStoredPatientRecords,
+  updatePatientRecord,
+  type StoredPatientRecord,
+} from './patientRecords';
 
 function downloadJson(data: unknown, filename: string) {
   const blob = new Blob(
@@ -26,6 +32,30 @@ function downloadJson(data: unknown, filename: string) {
 
 export default function DoctorDashboard() {
   const s = usePatientSession();
+  const { user, logout } = useDoctorAuth();
+  const navigate = useNavigate();
+
+  const [records, setRecords] = useState<StoredPatientRecord[]>(() =>
+    getStoredPatientRecords()
+  );
+
+  // Selected patient record id from queue, or 'live' for current active session
+  const [selectedRecordId, setSelectedRecordId] = useState<string>(() => {
+    if (s.patientProfile?.identifier) {
+      return s.patientProfile.identifier;
+    }
+    const stored = getStoredPatientRecords();
+    return stored[0]?.id || 'live';
+  });
+
+  // Refresh records on mount and when selectedRecordId changes
+  useEffect(() => {
+    setRecords(getStoredPatientRecords());
+  }, [selectedRecordId]);
+
+  const activeRecord = useMemo(() => {
+    return records.find(r => r.id === selectedRecordId) || null;
+  }, [records, selectedRecordId]);
 
   const [tab, setTab] = useState<
     'summary' | 'conversation' | 'documents' | 'timeline'
@@ -36,32 +66,37 @@ export default function DoctorDashboard() {
   const [summaryProvider, setSummaryProvider] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const answers = s.historyAnswers ?? {};
-  const complaint = s.chiefComplaint;
+  // Resolved clinical data: selected record, or fallback to live session
+  const answers = activeRecord ? activeRecord.historyAnswers : (s.historyAnswers ?? {});
+  const complaint = activeRecord ? activeRecord.chiefComplaint : s.chiefComplaint;
+  const backgroundHistory = activeRecord ? activeRecord.backgroundHistory : s.backgroundHistory;
+  const documents = activeRecord ? activeRecord.documents : s.documents;
+  const patientProfile = activeRecord ? activeRecord.patientProfile : s.patientProfile;
+  const safetyFlags = activeRecord ? activeRecord.safetyFlags : s.safetyFlags;
+  const doctorReviews = activeRecord ? activeRecord.doctorReviews : s.doctorReviews;
+  const evidence = activeRecord ? activeRecord.evidence : s.evidence;
+  const reviewStatus = activeRecord?.reviewStatus || 'pending';
 
   const conflicts = useMemo(
     () =>
       detectConflicts(
-        s.backgroundHistory,
-        s.documents
+        backgroundHistory,
+        documents
       ),
-    [s.backgroundHistory, s.documents]
+    [backgroundHistory, documents]
   );
 
   const timeline = useMemo(
     () =>
-      buildTimeline(
-        complaint,
-        answers,
-        s.documents,
-        s.backgroundHistory
-      ),
-    [
-      complaint,
-      answers,
-      s.documents,
-      s.backgroundHistory
-    ]
+      activeRecord?.timeline && activeRecord.timeline.length > 0
+        ? activeRecord.timeline
+        : buildTimeline(
+            complaint,
+            answers,
+            documents,
+            backgroundHistory
+          ),
+    [activeRecord, complaint, answers, documents, backgroundHistory]
   );
 
   const effectiveSummary =
@@ -69,15 +104,15 @@ export default function DoctorDashboard() {
     generateClinicalSummary(
       complaint,
       answers,
-      s.documents,
-      s.backgroundHistory,
-      s.patientProfile,
-      s.safetyFlags,
-      s.doctorReviews
+      documents,
+      backgroundHistory,
+      patientProfile,
+      safetyFlags,
+      doctorReviews
     );
 
   const evidenceFor = (field: string) =>
-    s.evidence.find(e => e.field === field);
+    evidence.find(e => e.field === field);
 
   const makeAiSummary = async () => {
     setBusy(true);
@@ -87,10 +122,10 @@ export default function DoctorDashboard() {
         complaint,
         history: {
           ...answers,
-          ...s.backgroundHistory
+          ...backgroundHistory
         },
-        documents: s.documents,
-        evidence: s.evidence
+        documents: documents,
+        evidence: evidence
       });
 
       setSummary(r.summary);
@@ -100,11 +135,11 @@ export default function DoctorDashboard() {
         generateClinicalSummary(
           complaint,
           answers,
-          s.documents,
-          s.backgroundHistory,
-          s.patientProfile,
-          s.safetyFlags,
-          s.doctorReviews
+          documents,
+          backgroundHistory,
+          patientProfile,
+          safetyFlags,
+          doctorReviews
         )
       );
 
@@ -122,63 +157,96 @@ export default function DoctorDashboard() {
       edits[field] ??
       String(answers[field] ?? '');
 
-    s.reviewField({
+    const revItem = {
       field,
       status,
-      editedValue:
-        status === 'edited'
-          ? v
-          : undefined,
-      reviewedAt:
-        new Date().toISOString(),
-      reviewer: 'Demo Physician'
-    });
+      editedValue: status === 'edited' ? v : undefined,
+      reviewedAt: new Date().toISOString(),
+      reviewer: user?.displayName || 'Dr. Sharma'
+    };
+
+    if (activeRecord) {
+      const updatedReviews = [
+        ...activeRecord.doctorReviews.filter(r => r.field !== field),
+        revItem
+      ];
+      const updatedAnswers = status === 'edited'
+        ? { ...activeRecord.historyAnswers, [field]: v }
+        : activeRecord.historyAnswers;
+
+      const updated = updatePatientRecord(activeRecord.id, {
+        doctorReviews: updatedReviews,
+        historyAnswers: updatedAnswers,
+      });
+      if (updated) {
+        setRecords(getStoredPatientRecords());
+      }
+    } else {
+      s.reviewField(revItem);
+    }
   };
 
   const saveEdit = (field: string) => {
     review(field, 'edited');
   };
 
+  const toggleRecordStatus = (newStatus: 'pending' | 'reviewed') => {
+    if (activeRecord) {
+      updatePatientRecord(activeRecord.id, { reviewStatus: newStatus });
+      setRecords(getStoredPatientRecords());
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/doctor/login', { replace: true });
+  };
+
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="min-h-screen bg-canvas mesh-gradient">
 
       {/* Header */}
-      <header className="border-b border-clinic-100 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+      <header className="sticky top-0 z-30 border-b border-clinic-100/80 glass-header">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
 
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-clinic-500">
-              Sehat Saathi · Physician review
-            </p>
-
-            <h1 className="font-display text-2xl font-semibold text-ink">
-              Clinical intake dashboard
-            </h1>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-clinic-600 to-clinic-700 text-white shadow-sm shadow-clinic-600/20">
+              <span className="text-xl">🩺</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-display text-lg font-semibold text-ink">
+                  Physician Review Portal
+                </span>
+                <span className="rounded-full border border-clinic-200 bg-clinic-50 px-2 py-0.5 text-[10px] font-bold text-clinic-700">
+                  SIH26047 · DEMO
+                </span>
+              </div>
+              <p className="text-xs text-muted">
+                Pre-consultation clinical queue & triage validation
+              </p>
+            </div>
           </div>
 
-          <div className="flex gap-2">
-
-            <Link
-              to="/"
-              className="rounded-full border border-clinic-200 px-4 py-2 text-sm text-muted"
-            >
-              Exit
-            </Link>
-
-            <Link
-              to="/patient"
-              className="rounded-full bg-clinic-600 px-4 py-2 text-sm font-medium text-white"
-            >
-              New patient
-            </Link>
+          <div className="flex items-center gap-4">
+            <div className="hidden text-right sm:block">
+              <p className="text-xs font-semibold text-ink">{user?.displayName || 'Dr. Sharma'}</p>
+              <p className="text-[11px] text-muted">{user?.role || 'Senior Physician'} · <span className="font-mono text-[10px]">{user?.username || 'demo-doctor'}</span></p>
+            </div>
 
             <Link
               to="/analytics"
-              className="rounded-full border border-clinic-200 px-4 py-2 text-sm text-muted"
+              className="rounded-full border border-clinic-200 bg-white px-4 py-2 text-xs font-semibold text-muted hover:border-clinic-400 hover:text-ink transition shadow-2xs"
             >
               Analytics
             </Link>
 
+            <button
+              onClick={handleLogout}
+              className="rounded-full border border-red-200 bg-red-50/60 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 transition shadow-2xs"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </header>
@@ -194,14 +262,14 @@ export default function DoctorDashboard() {
         )}
 
         {/* Safety Flags */}
-        {s.safetyFlags.length > 0 && (
+        {safetyFlags.length > 0 && (
           <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5">
 
             <p className="font-semibold text-red-900">
               Priority clinical review
             </p>
 
-            {s.safetyFlags.map(f => (
+            {safetyFlags.map(f => (
               <p
                 key={f.id}
                 className="mt-1 text-sm text-red-800"
@@ -242,6 +310,69 @@ export default function DoctorDashboard() {
           </div>
         )}
 
+        {/* PATIENT INTAKE QUEUE */}
+        <div className="mb-6 rounded-2xl border border-clinic-100 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold text-ink">Patient Intake Queue</span>
+              <span className="rounded-full bg-clinic-100 px-2.5 py-0.5 text-xs font-semibold text-clinic-800">
+                {records.length} {records.length === 1 ? 'record' : 'records'}
+              </span>
+            </div>
+            <p className="text-xs text-muted">
+              Select a patient to inspect triage history, evidence, and review status.
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {records.map((rec) => {
+              const isSelected = rec.id === selectedRecordId;
+              const hasUrgent = rec.safetyFlags.some((f) => f.severity === 'urgent');
+              return (
+                <button
+                  key={rec.id}
+                  onClick={() => {
+                    setSelectedRecordId(rec.id);
+                    setEdits({});
+                    setSummary('');
+                  }}
+                  className={`flex flex-col items-start rounded-xl border p-3 text-left transition ${
+                    isSelected
+                      ? 'border-clinic-600 bg-clinic-50/50 shadow-sm ring-1 ring-clinic-500'
+                      : 'border-clinic-100 bg-white hover:border-clinic-200 hover:bg-clinic-50/30'
+                  }`}
+                >
+                  <div className="flex w-full items-center justify-between gap-1">
+                    <span className="font-medium text-ink truncate text-sm">
+                      {rec.patientProfile?.name || 'Anonymous'}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        rec.reviewStatus === 'reviewed'
+                          ? 'bg-clinic-100 text-clinic-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {rec.reviewStatus}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-xs text-muted truncate w-full">
+                    {rec.chiefComplaint?.displayName || 'Complaint not specified'}
+                  </p>
+
+                  <div className="mt-2 flex w-full items-center justify-between text-[11px] text-muted">
+                    <span>{rec.patientProfile?.age ? `${rec.patientProfile.age}y` : ''} · {rec.patientProfile?.sex || '—'}</span>
+                    {hasUrgent && (
+                      <span className="font-bold text-red-600">🚨 Urgent</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
 
           {/* Sidebar */}
@@ -249,22 +380,46 @@ export default function DoctorDashboard() {
 
             <div className="rounded-xl bg-clinic-50 p-4">
 
-              <p className="text-xs uppercase tracking-wide text-muted">
-                Patient
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs uppercase tracking-wide text-muted">
+                  Active Patient
+                </p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                    reviewStatus === 'reviewed'
+                      ? 'bg-clinic-200 text-clinic-900'
+                      : 'bg-amber-100 text-amber-900'
+                  }`}
+                >
+                  {reviewStatus}
+                </span>
+              </div>
 
               <p className="mt-1 font-semibold text-ink">
-                {s.patientProfile?.name || 'Anonymous / Demo'}
+                {patientProfile?.name || 'Anonymous / Demo'}
               </p>
 
               <p className="text-sm text-muted">
-                Age {s.patientProfile?.age || '—'} ·{' '}
-                {s.patientProfile?.sex || '—'}
+                Age {patientProfile?.age || '—'} ·{' '}
+                {patientProfile?.sex || '—'}
               </p>
 
               <p className="mt-1 text-xs text-muted">
-                ID: {s.patientProfile?.identifier || 'DEMO'}
+                ID: {patientProfile?.identifier || activeRecord?.id || 'DEMO'}
               </p>
+
+              {activeRecord && (
+                <button
+                  onClick={() =>
+                    toggleRecordStatus(
+                      reviewStatus === 'reviewed' ? 'pending' : 'reviewed'
+                    )
+                  }
+                  className="mt-3 w-full rounded-lg border border-clinic-300 bg-white px-2 py-1.5 text-xs font-semibold text-clinic-800 hover:bg-clinic-100"
+                >
+                  Mark as {reviewStatus === 'reviewed' ? 'Pending' : 'Reviewed'}
+                </button>
+              )}
 
             </div>
 
@@ -309,11 +464,11 @@ export default function DoctorDashboard() {
                   buildFhirBundle(
                     complaint,
                     answers,
-                    s.patientProfile,
-                    s.backgroundHistory,
-                    s.documents,
-                    s.safetyFlags,
-                    s.doctorReviews
+                    patientProfile,
+                    backgroundHistory,
+                    documents,
+                    safetyFlags,
+                    doctorReviews
                   ),
                   'medikiosk-fhir-bundle.json'
                 )
@@ -435,7 +590,7 @@ export default function DoctorDashboard() {
                          * shadowing the review() function.
                          */
                         const reviewRecord =
-                          s.doctorReviews.find(
+                          doctorReviews.find(
                             r => r.field === field
                           );
 
@@ -566,7 +721,7 @@ export default function DoctorDashboard() {
 
                 <div className="mt-5 space-y-3">
 
-                  {s.evidence.map(e => (
+                  {evidence.map(e => (
                     <div
                       key={`${e.field}-${e.timestamp}`}
                       className="rounded-xl border border-clinic-100 p-4"
@@ -610,7 +765,7 @@ export default function DoctorDashboard() {
                     Document evidence register
                   </h2>
 
-                  {s.documents.map(d => (
+                  {documents.map(d => (
                     <div
                       key={d.id}
                       className="mt-4 rounded-xl bg-canvas p-4"
