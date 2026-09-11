@@ -25,6 +25,14 @@ export { QuestionEngine } from "./QuestionEngine";
 
 export { abdominalPainFlow } from "./flows/abdominalPainFlow";
 
+// Six new body-system routing flows
+export { eyeProblemsFlow }     from "./flows/eyeProblemsFlow";
+export { headacheFlow }        from "./flows/headacheFlow";
+export { backPainFlow }        from "./flows/backPainFlow";
+export { skinProblemsFlow }    from "./flows/skinProblemsFlow";
+export { jointPainFlow }       from "./flows/jointPainFlow";
+export { urinaryProblemsFlow } from "./flows/urinaryProblemsFlow";
+
 export {
   calculateProgress,
   changeAnswer,

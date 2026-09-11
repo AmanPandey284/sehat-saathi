@@ -61,13 +61,26 @@ export default function AppHeader({
   }, [showStatus]);
 
   return (
-    <header className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-6">
-      <span className="font-display text-xl font-semibold text-clinic-700">
-        {t.brand}
-      </span>
-      <div className="flex items-center gap-3">
-        {showStatus && <StatusPill status={status} />}
-        <LanguageSelector />
+    <header className="sticky top-0 z-30 border-b border-clinic-100/80 glass-header">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-clinic-600 to-clinic-700 text-white shadow-sm shadow-clinic-600/20">
+            <span className="text-xl leading-none select-none">🩺</span>
+          </div>
+          <div>
+            <span className="font-display text-xl font-semibold tracking-tight text-clinic-800">
+              {t.brand}
+            </span>
+            <span className="ml-2 hidden rounded-full border border-clinic-200 bg-clinic-50/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-clinic-700 sm:inline-block">
+              SIH26047
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {showStatus && <StatusPill status={status} />}
+          <LanguageSelector />
+        </div>
       </div>
     </header>
   );
