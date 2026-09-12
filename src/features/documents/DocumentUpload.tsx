@@ -2,6 +2,19 @@ import { useState, type ReactNode } from "react";
 import { ocrDocument, BASE_URL } from "../../services/api";
 import { usePatientSession } from "../patient/state/PatientSessionContext";
 
+// ---------------------------------------------------------------------------
+// Fix 4: pre-warm the Render backend before every OCR upload so the
+//         cold-start penalty (30–90 s) is absorbed before the heavy OCR
+//         request hits the server.
+// ---------------------------------------------------------------------------
+async function warmBackend(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/api/health`, { method: "GET" });
+  } catch {
+    // Ignore – warming is best-effort; the real OCR request will still proceed.
+  }
+}
+
 export default function DocumentUpload() {
   const { documents, addDocument, removeDocument } = usePatientSession();
   const [busy, setBusy] = useState(false);
@@ -11,7 +24,14 @@ export default function DocumentUpload() {
     setBusy(true);
     setMessage(`Reading ${file.name}…`);
 
+    // Fire the warm-up ping concurrently so it has as much lead time as
+    // possible before the actual OCR request is sent.
+    const warmPromise = warmBackend();
+
     try {
+      // Await warm-up before dispatching the heavy OCR upload.
+      await warmPromise;
+
       const r: any = await ocrDocument(file);
       const previewUrl = file.type.startsWith("image/")
         ? URL.createObjectURL(file)
@@ -114,11 +134,15 @@ export default function DocumentUpload() {
 
       setMessage(`${file.name} processed successfully.`);
     } catch (error) {
-      setMessage(
+      // Fix 3: surface a clear timeout/abort message so the user knows to
+      // retry rather than seeing the spinner frozen forever.
+      const msg =
         error instanceof Error
-          ? error.message
-          : "Could not process this document.",
-      );
+          ? error.name === "AbortError"
+            ? "OCR is taking longer than expected — please try again. (The server may need a moment to warm up.)"
+            : error.message
+          : "Could not process this document.";
+      setMessage(msg);
     } finally {
       setBusy(false);
     }
@@ -163,32 +187,42 @@ export default function DocumentUpload() {
         <input
           className="sr-only"
           type="file"
-          accept=".pdf,.txt,.csv,.md,image/*"
-          onChange={(event) => onFiles(event.target.files)}
+          accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.csv,.md"
+          disabled={busy}
+          onChange={(e) => onFiles(e.target.files)}
         />
       </label>
 
       {busy && (
-        <p className="mt-3 text-sm text-muted">
+        <p className="mt-4 animate-pulse text-sm text-muted">
           {message}
         </p>
       )}
 
       {!busy && message && (
-        <p className="mt-3 text-sm text-clinic-700">
+        <p
+          className={`mt-4 text-sm ${
+            message.includes("successfully")
+              ? "text-emerald-700"
+              : "text-red-700"
+          }`}
+        >
           {message}
         </p>
       )}
 
-      <div className="mt-5 space-y-5">
-        {documents.map((doc: any) => (
-          <StructuredDocumentCard
-            key={doc.id}
-            doc={doc}
-            onRemove={() => removeDocument(doc.id)}
-          />
-        ))}
-      </div>
+      {documents.length > 0 && (
+        <ul className="mt-6 space-y-4">
+          {documents.map((doc) => (
+            <li key={doc.id}>
+              <StructuredDocumentCard
+                doc={doc}
+                onRemove={() => removeDocument(doc.id)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -200,101 +234,89 @@ function StructuredDocumentCard({
   doc: any;
   onRemove: () => void;
 }) {
-  const [showRaw, setShowRaw] = useState(false);
-  const data = doc.structuredData;
-  const attentionItems = doc.attentionItems ?? [];
-
-  const sourceUrl = doc.sourceDocument?.url
-    ? doc.sourceDocument.url.startsWith("http")
-      ? doc.sourceDocument.url
-      : `${BASE_URL}${doc.sourceDocument.url}`
-    : doc.previewUrl;
+  const [open, setOpen] = useState(false);
 
   return (
-    <article className="rounded-xl border border-clinic-100 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-ink">
+    <article className="rounded-xl border border-clinic-100 bg-canvas">
+      <div className="flex items-start gap-3 p-4">
+        <div className="flex-1">
+          <p className="font-medium text-ink">
             {doc.name}
           </p>
 
-          <p className="mt-1 text-xs text-muted">
-            Original document → OCR → structured medical information
+          <p className="mt-0.5 text-xs text-muted">
+            {doc.entities?.length ?? 0} entities extracted
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onRemove}
-          className="text-sm text-red-700"
-        >
-          Remove
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="rounded-full border border-clinic-200 px-3 py-1 text-xs font-medium text-clinic-700"
+          >
+            {open ? "Collapse" : "View"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-700"
+          >
+            Remove
+          </button>
+        </div>
       </div>
 
-      {attentionItems.length > 0 && (
-        <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-          <h3 className="font-semibold text-red-900">
-            Doctor attention
-          </h3>
+      {open && (
+        <ExpandedDocumentView doc={doc} />
+      )}
+    </article>
+  );
+}
 
-          <div className="mt-3 space-y-3">
-            {attentionItems.map((item: any, index: number) => (
-              <div
-                key={`${item.name}-${index}`}
-                className="rounded-lg border border-red-200 bg-white p-3"
-              >
-                <p className="font-semibold text-ink">
-                  {item.name}
-                </p>
+function ExpandedDocumentView({ doc }: { doc: any }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const data = doc.structuredData ?? null;
 
-                <p className="mt-1 text-sm">
-                  Patient result:{" "}
-                  <strong>
-                    {item.patientValue ?? "Not available"}
-                  </strong>
-                </p>
+  const sourceUrl = doc.sourceDocument?.url
+    ? `https://sehat-saathi-bce6.onrender.com${doc.sourceDocument.url}`
+    : undefined;
 
-                <p className="mt-1 text-sm text-muted">
-                  Reference:{" "}
-                  {item.referenceRange ?? "Not available"}
-                </p>
+  return (
+    <div className="space-y-4 border-t border-clinic-100 p-4">
+      {doc.attentionItems && doc.attentionItems.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="font-semibold text-amber-800">
+            ⚠ Values requiring attention
+          </p>
 
-                {item.comparison && (
-                  <p className="mt-1 text-sm font-medium text-red-700">
-                    {item.comparison}
-                  </p>
-                )}
-              </div>
+          <ul className="mt-2 space-y-1">
+            {doc.attentionItems.map((item: any, i: number) => (
+              <li key={i} className="text-sm text-amber-900">
+                {item.type}: {item.name} — {item.patientValue}
+                {item.comparison && ` (${item.comparison})`}
+              </li>
             ))}
-          </div>
-        </section>
+          </ul>
+        </div>
       )}
 
       {data ? (
-        <div className="mt-5 space-y-4">
-          <Section title="Patient Information">
-            <Field label="Patient ID" value={data.patient?.patient_id} />
+        <div className="space-y-4">
+          <Section title="Patient">
             <Field label="Name" value={data.patient?.name} />
             <Field label="Age" value={data.patient?.age} />
             <Field label="Gender" value={data.patient?.gender} />
-            <Field label="Contact" value={data.patient?.contact} />
-            <Field label="Address" value={data.patient?.address} />
-            <Field label="Allergies" value={data.patient?.allergies} />
+            <Field label="UHID" value={data.patient?.uhid} />
           </Section>
 
-          <Section title="Visit Information">
-            <Field label="Visit date" value={data.visit?.visit_date} />
-            <Field
-              label="Consultation time"
-              value={data.visit?.consultation_time}
-            />
+          <Section title="Visit">
+            <Field label="Date" value={data.visit?.visit_date} />
             <Field label="Doctor" value={data.visit?.doctor} />
-            <Field label="Department" value={data.visit?.department} />
-            <Field label="Visit type" value={data.visit?.visit_type} />
             <Field
-              label="Referred by"
-              value={data.visit?.referred_by}
+              label="Department"
+              value={data.visit?.department}
             />
           </Section>
 
@@ -306,7 +328,7 @@ function StructuredDocumentCard({
                   className="rounded-lg bg-canvas p-3"
                 >
                   <p className="font-medium">
-                    {index + 1}. {item.complaint}
+                    {item.complaint}
                   </p>
 
                   {item.duration && (
@@ -512,7 +534,7 @@ function StructuredDocumentCard({
           />
         </div>
       )}
-    </article>
+    </div>
   );
 }
 

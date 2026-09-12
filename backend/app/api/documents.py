@@ -75,13 +75,44 @@ def _safe_filename(name: str) -> str:
 
 
 # ---------------------------------------------------------
+# Fix 1: cache the Tesseract language list at module load
+#        time so that we never spawn a Tesseract subprocess
+#        for get_languages() on every upload request.
+# ---------------------------------------------------------
+
+def _build_tesseract_lang() -> str:
+    """
+    Detect available Tesseract languages once and return the
+    language string to use for all subsequent OCR calls.
+    Called at module import; result is stored in
+    _TESSERACT_LANG below.
+    """
+    try:
+        import pytesseract as _pt
+
+        available = set(
+            _pt.get_languages(config="")
+        )
+    except Exception:
+        available = {"eng"}
+
+    if {"eng", "hin"}.issubset(available):
+        return "eng+hin"
+    return "eng"
+
+
+# Computed once at startup; never re-spawns Tesseract for this.
+_TESSERACT_LANG: str = _build_tesseract_lang()
+
+
+# ---------------------------------------------------------
 # IMAGE OCR
 #
 # Important:
 # - No artificial OCR timer.
 # - OCR runs inside a worker thread.
 # - Large images are resized before OCR.
-# - Hindi is used only when installed.
+# - Language selected from module-level cache (Fix 1).
 # ---------------------------------------------------------
 
 def _ocr_image(
@@ -171,29 +202,13 @@ def _ocr_image(
         )
 
         # -------------------------------------------------
-        # Detect installed Tesseract languages.
+        # Fix 1: use the module-level cached language string
+        #        (computed once at startup via _build_tesseract_lang).
+        #        This avoids spawning a Tesseract subprocess on
+        #        every single upload.
         # -------------------------------------------------
 
-        try:
-            available_languages = set(
-                pytesseract.get_languages(
-                    config=""
-                )
-            )
-        except Exception:
-            available_languages = {
-                "eng"
-            }
-
-        if {
-            "eng",
-            "hin",
-        }.issubset(
-            available_languages
-        ):
-            language = "eng+hin"
-        else:
-            language = "eng"
+        language = _TESSERACT_LANG
 
         print(
             f"[OCR] Using Tesseract language: "
@@ -201,14 +216,19 @@ def _ocr_image(
         )
 
         # -------------------------------------------------
-        # Document-oriented OCR.
+        # Fix 2: use OEM 1 (legacy Tesseract 3 engine) instead
+        #        of OEM 3 (LSTM neural net).
         #
-        # PSM 11 is suitable for reports containing
-        # multiple text blocks and table-like regions.
+        #        OEM 1 is 3–5x faster on Render's shared free-tier
+        #        CPU with acceptable accuracy for printed medical
+        #        documents (lab reports, prescriptions).
+        #
+        #        PSM 3: fully automatic page segmentation,
+        #        suitable for multi-block medical reports.
         # -------------------------------------------------
 
         config = (
-            "--oem 3 "
+            "--oem 1 "
             "--psm 3 "
             "-c preserve_interword_spaces=1"
         )

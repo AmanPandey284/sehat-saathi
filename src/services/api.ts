@@ -61,6 +61,12 @@ export interface OCRDocumentResponse {
   } | null;
 }
 
+// Fix 3: 90-second abort timeout so the UI never freezes forever.
+// On large real-world images the Render free-tier backend can take
+// 30–60 s; 90 s gives a generous margin while still surfacing a clear
+// error (AbortError) instead of an infinite spinner.
+const OCR_TIMEOUT_MS = 90_000;
+
 export async function ocrDocument(
   file: File,
 ): Promise<OCRDocumentResponse> {
@@ -68,28 +74,39 @@ export async function ocrDocument(
 
   fd.append("file", file);
 
-  const r = await fetch(
-    `${BASE_URL}/api/documents/ocr`,
-    {
-      method: "POST",
-      body: fd,
-    },
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    OCR_TIMEOUT_MS,
   );
 
-  if (!r.ok) {
-    let message = "Document processing failed";
+  try {
+    const r = await fetch(
+      `${BASE_URL}/api/documents/ocr`,
+      {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+      },
+    );
 
-    try {
-      const data = await r.json();
-      message = data.detail || message;
-    } catch {
-      // Keep default message.
+    if (!r.ok) {
+      let message = "Document processing failed";
+
+      try {
+        const data = await r.json();
+        message = data.detail || message;
+      } catch {
+        // Keep default message.
+      }
+
+      throw new Error(message);
     }
 
-    throw new Error(message);
+    return (await r.json()) as OCRDocumentResponse;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return (await r.json()) as OCRDocumentResponse;
 }
 
 /* =========================================================
