@@ -17,6 +17,83 @@ export default function DocumentUpload() {
         ? URL.createObjectURL(file)
         : undefined;
 
+      // Ensure entities are populated from backend structured data if entities array is omitted
+      const extractedEntities = Array.isArray(r.entities) && r.entities.length > 0
+        ? r.entities
+        : (() => {
+            const list: Array<{
+              type: string;
+              value: string;
+              confidence: "high" | "medium" | "low";
+              sourceText: string;
+              page?: number;
+            }> = [];
+            const sd = r.structuredData;
+            if (sd) {
+              if (Array.isArray(sd.vitals)) {
+                for (const v of sd.vitals) {
+                  if (v.name && v.patientValue) {
+                    list.push({
+                      type: "Vital",
+                      value: `${v.name}: ${v.patientValue}`,
+                      confidence: "high",
+                      sourceText: `${v.name}: ${v.patientValue}`,
+                    });
+                  }
+                }
+              }
+              if (Array.isArray(sd.medications)) {
+                for (const m of sd.medications) {
+                  if (m.name) {
+                    list.push({
+                      type: "Medication",
+                      value: [m.name, m.dose, m.frequency].filter(Boolean).join(" "),
+                      confidence: "high",
+                      sourceText: m.name,
+                    });
+                  }
+                }
+              }
+              if (Array.isArray(sd.diagnoses)) {
+                for (const d of sd.diagnoses) {
+                  if (d.diagnosis) {
+                    list.push({
+                      type: "Diagnosis",
+                      value: d.diagnosis,
+                      confidence: "high",
+                      sourceText: d.diagnosis,
+                    });
+                  }
+                }
+              }
+              if (Array.isArray(sd.laboratoryResults)) {
+                for (const l of sd.laboratoryResults) {
+                  if (l.testName && l.patientValue) {
+                    list.push({
+                      type: "Lab",
+                      value: `${l.testName}: ${l.patientValue}`,
+                      confidence: "high",
+                      sourceText: `${l.testName}: ${l.patientValue}`,
+                    });
+                  }
+                }
+              }
+              if (Array.isArray(sd.chiefComplaints)) {
+                for (const c of sd.chiefComplaints) {
+                  if (c.complaint) {
+                    list.push({
+                      type: "Complaint",
+                      value: c.complaint + (c.duration ? ` (${c.duration})` : ""),
+                      confidence: "high",
+                      sourceText: c.complaint,
+                    });
+                  }
+                }
+              }
+            }
+            return list;
+          })();
+
       addDocument({
         id: crypto.randomUUID(),
         name: r.name,
@@ -27,7 +104,7 @@ export default function DocumentUpload() {
           r.extractionStatus === "extracted"
             ? "extracted"
             : "ocr",
-        entities: r.entities ?? [],
+        entities: extractedEntities,
         pages: r.pages ?? [],
         previewUrl,
         structuredData: r.structuredData ?? null,

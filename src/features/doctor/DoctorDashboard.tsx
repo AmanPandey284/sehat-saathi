@@ -30,6 +30,15 @@ function downloadJson(data: unknown, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatComplaintLabel(complaint?: { displayName?: string; originalInput?: string; complaintId?: string } | null): string {
+  if (!complaint) return 'Not reported';
+  const name = complaint.displayName || '';
+  if (complaint.complaintId === 'custom' || name.toLowerCase().includes('other / custom complaint')) {
+    return complaint.originalInput ? `Main symptom: ${complaint.originalInput}` : 'Main symptom';
+  }
+  return name || (complaint.originalInput ? `Main symptom: ${complaint.originalInput}` : 'Complaint not specified');
+}
+
 export default function DoctorDashboard() {
   const s = usePatientSession();
   const { user, logout } = useDoctorAuth();
@@ -358,7 +367,7 @@ export default function DoctorDashboard() {
                   </div>
 
                   <p className="mt-1 text-xs text-muted truncate w-full">
-                    {rec.chiefComplaint?.displayName || 'Complaint not specified'}
+                    {formatComplaintLabel(rec.chiefComplaint)}
                   </p>
 
                   <div className="mt-2 flex w-full items-center justify-between text-[11px] text-muted">
@@ -504,7 +513,7 @@ export default function DoctorDashboard() {
                       </p>
 
                       <h2 className="mt-1 font-display text-2xl font-semibold text-ink">
-                        {complaint?.displayName || 'Not reported'}
+                        {formatComplaintLabel(complaint)}
                       </h2>
 
                       <p className="mt-1 text-sm text-muted">
@@ -594,13 +603,19 @@ export default function DoctorDashboard() {
                             r => r.field === field
                           );
 
+                        const status = reviewRecord?.status || 'unverified';
+
                         const displayed =
-                          reviewRecord?.status === 'edited'
+                          status === 'edited'
                             ? (
-                                reviewRecord.editedValue ??
+                                reviewRecord?.editedValue ??
                                 String(valueText(value))
                               )
                             : valueText(value);
+
+                        const hasPendingEdit =
+                          edits[field] !== undefined &&
+                          edits[field] !== displayed;
 
                         return (
                           <div
@@ -617,14 +632,28 @@ export default function DoctorDashboard() {
                                   {labelField(field)}
                                 </p>
 
-                                <p className="text-xs text-muted">
-                                  {reviewRecord?.status ||
-                                    'unverified'}
-                                  {' · '}
-                                  {ev?.confidence ||
-                                    'medium'}{' '}
-                                  confidence
-                                </p>
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  {status === 'confirmed' ? (
+                                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                                      ✓ Confirmed
+                                    </span>
+                                  ) : status === 'edited' ? (
+                                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                                      ✎ Edited
+                                    </span>
+                                  ) : status === 'rejected' ? (
+                                    <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">
+                                      ✕ Rejected
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                      Unverified
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-muted">
+                                    · {ev?.confidence || 'medium'}
+                                  </span>
+                                </div>
 
                               </div>
 
@@ -643,10 +672,18 @@ export default function DoctorDashboard() {
                                         e.target.value
                                     }))
                                   }
-                                  className="w-full rounded-lg border border-clinic-200 p-2.5 text-sm"
+                                  className={`w-full rounded-lg border p-2.5 text-sm ${
+                                    status === 'rejected'
+                                      ? 'border-red-200 bg-red-50/40 text-red-900 line-through'
+                                      : status === 'confirmed'
+                                      ? 'border-emerald-200 bg-emerald-50/20'
+                                      : status === 'edited'
+                                      ? 'border-amber-200 bg-amber-50/20'
+                                      : 'border-clinic-200'
+                                  }`}
                                 />
 
-                                <div className="mt-2 flex flex-wrap gap-2">
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
 
                                   <span className="rounded-full bg-clinic-50 px-2 py-1 text-xs text-clinic-800">
                                     Source:{' '}
@@ -661,38 +698,60 @@ export default function DoctorDashboard() {
                                     </span>
                                   )}
 
-                                  <button
-                                    onClick={() =>
-                                      review(
-                                        field,
-                                        'confirmed'
-                                      )
-                                    }
-                                    className="rounded-full border border-clinic-200 px-3 py-1 text-xs text-clinic-700"
-                                  >
-                                    Confirm
-                                  </button>
+                                  {/* Action buttons: conditionally rendered based on review state */}
+                                  {status !== 'confirmed' && (
+                                    <button
+                                      onClick={() =>
+                                        review(
+                                          field,
+                                          'confirmed'
+                                        )
+                                      }
+                                      className="rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition shadow-2xs"
+                                    >
+                                      Confirm
+                                    </button>
+                                  )}
 
-                                  <button
-                                    onClick={() =>
-                                      saveEdit(field)
-                                    }
-                                    className="rounded-full border border-clinic-200 px-3 py-1 text-xs text-clinic-700"
-                                  >
-                                    Save edit
-                                  </button>
+                                  {hasPendingEdit && (
+                                    <button
+                                      onClick={() =>
+                                        saveEdit(field)
+                                      }
+                                      className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 transition shadow-2xs"
+                                    >
+                                      Save edit
+                                    </button>
+                                  )}
 
-                                  <button
-                                    onClick={() =>
-                                      review(
-                                        field,
-                                        'rejected'
-                                      )
-                                    }
-                                    className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-700"
-                                  >
-                                    Reject
-                                  </button>
+                                  {status !== 'rejected' && (
+                                    <button
+                                      onClick={() =>
+                                        review(
+                                          field,
+                                          'rejected'
+                                        )
+                                      }
+                                      className="rounded-full border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 transition shadow-2xs"
+                                    >
+                                      Reject
+                                    </button>
+                                  )}
+
+                                  {/* For already-confirmed or rejected fields without draft changes, offer an easy Edit action */}
+                                  {(status === 'confirmed' || status === 'rejected') && !hasPendingEdit && (
+                                    <button
+                                      onClick={() => {
+                                        setEdits(x => ({
+                                          ...x,
+                                          [field]: displayed
+                                        }));
+                                      }}
+                                      className="rounded-full border border-clinic-200 bg-white px-3 py-1 text-xs font-medium text-clinic-700 hover:bg-clinic-50 transition shadow-2xs"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
 
                                 </div>
 

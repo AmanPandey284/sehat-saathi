@@ -220,9 +220,10 @@ function handleContinue() {
               <div className="mt-8 flex flex-wrap gap-3">
                 <button
                   onClick={() => {
+                    const clean = draftInput.trim();
                     setChiefComplaint({
                       complaintId: "custom",
-                      displayName: "Other / custom complaint",
+                      displayName: clean ? `Main symptom: ${clean}` : "Main symptom",
                       originalInput: draftInput,
                       confidence: 0,
                       source: "patient",
