@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/AppHeader';
+import ContextualHelp from '../components/ContextualHelp';
 import { useLanguage } from '../i18n/LanguageContext';
 import { usePatientSession } from '../features/patient/state/PatientSessionContext';
 
@@ -41,6 +42,14 @@ export default function PatientEntryChoice() {
                   ? 'आइए आपको आपके परामर्श के लिए तैयार करें।'
                   : "Let's get you ready for your consultation."}
               </p>
+              <div className="mt-3 flex justify-center">
+                <ContextualHelp
+                  titleEn="Patient Entry"
+                  titleHi="रोगी प्रवेश"
+                  explanationEn="Choose New Patient if this is your first visit. Choose Existing Patient if you have visited before."
+                  explanationHi="यदि आप पहली बार आए हैं तो नया मरीज चुनें। यदि आप पहले आ चुके हैं तो पुराना मरीज चुनें।"
+                />
+              </div>
             </div>
 
             {/* Two Clearly Separated Entry Options */}

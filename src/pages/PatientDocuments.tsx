@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/AppHeader';
+import ContextualHelp from '../components/ContextualHelp';
 import DocumentUpload from '../features/documents/DocumentUpload';
 import { usePatientSession, type BackgroundHistory } from '../features/patient/state/PatientSessionContext';
 import { buildTimeline } from '../features/history/recordUtils';
@@ -56,11 +57,19 @@ export default function PatientDocuments() {
                 {language === 'hi' ? 'पिछली जानकारी व पर्चे जोड़ें' : 'Past Medical Records & OCR'}
               </h1>
             </div>
-            {safetyFlags.length > 0 && (
-              <span className="rounded-full bg-red-100 px-3.5 py-1.5 text-xs font-bold text-red-800 border border-red-200">
-                🚨 Priority Triage Active
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <ContextualHelp
+                titleEn="Medical Documents & Reports"
+                titleHi="मेडिकल दस्तावेज व जांच रिपोर्ट"
+                explanationEn="Upload a clear photo or PDF of your prescription or medical report."
+                explanationHi="अपने डॉक्टर के पर्चे या मेडिकल रिपोर्ट का स्पष्ट फोटो या पीडीएफ अपलोड करें।"
+              />
+              {safetyFlags.length > 0 && (
+                <span className="rounded-full bg-red-100 px-3.5 py-1.5 text-xs font-bold text-red-800 border border-red-200">
+                  🚨 Priority Triage Active
+                </span>
+              )}
+            </div>
           </div>
 
           {/* BACKGROUND HISTORY */}

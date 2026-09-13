@@ -211,8 +211,34 @@ export default function PatientLanding() {
                 </div>
               </div>
 
+              {/* Sehat Saathi Sahayak Help Entry */}
+              <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clinic-200/80 bg-clinic-50/70 p-4 max-w-2xl shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white border border-clinic-200 text-xl shadow-2xs">
+                    🤝
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-clinic-800">
+                      {language === "hi" ? "सेहत साथी सहायक" : "Sehat Saathi Sahayak"}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {language === "hi"
+                        ? "सेहत साथी का उपयोग करने में सहायता चाहिए?"
+                        : "Need help using Sehat Saathi?"}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  to="/patient/help"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-clinic-300 bg-white px-4 py-2 text-xs font-semibold text-clinic-800 shadow-2xs hover:bg-clinic-100 hover:border-clinic-400 transition"
+                >
+                  <span>{language === "hi" ? "उपयोग कैसे करें" : "How to Use"}</span>
+                  <span aria-hidden>→</span>
+                </Link>
+              </div>
+
               {/* Quick AYUSH Link */}
-              <div className="mt-6 flex items-center gap-2 text-xs text-muted">
+              <div className="mt-5 flex items-center gap-2 text-xs text-muted">
                 <span>Looking for traditional Ayurveda intake?</span>
                 <Link to="/patient/ayush" className="font-semibold text-clinic-700 underline decoration-clinic-300 underline-offset-4 hover:text-clinic-900">
                   Open AYUSH Mode →

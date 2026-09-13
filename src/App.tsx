@@ -8,6 +8,7 @@ import ComingSoon from './pages/ComingSoon';
 import ConsentScreen from './features/patient/ConsentScreen';
 import PatientProfile from './pages/PatientProfile';
 import PatientEntryChoice from './pages/PatientEntryChoice';
+import PatientHelp from './pages/PatientHelp';
 import ExistingPatientPlaceholder from './pages/ExistingPatientPlaceholder';
 import ExistingPatientLookup from './pages/ExistingPatientLookup';
 import ReturningPatientHome from './pages/ReturningPatientHome';
@@ -33,6 +34,7 @@ export default function App(){
         <DoctorAuthProvider>
           <Routes>
             <Route path="/" element={<PatientLanding/>}/>
+            <Route path="/patient/help" element={<PatientHelp/>}/>
             <Route path="/patient/entry" element={<PatientEntryChoice/>}/>
             <Route path="/patient/existing" element={<ExistingPatientPlaceholder/>}/>
             <Route path="/patient/lookup" element={<ExistingPatientLookup/>}/>

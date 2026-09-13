@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/AppHeader';
+import ContextualHelp from '../components/ContextualHelp';
 import { useLanguage } from '../i18n/LanguageContext';
 import { usePatientSession } from '../features/patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../features/history/recordUtils';
@@ -60,11 +61,19 @@ export default function PatientReview() {
       <div>
         <AppHeader />
         <main className="mx-auto max-w-4xl px-6 py-8">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clinic-600">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-clinic-100 text-clinic-700 text-[11px]">
-              5
-            </span>
-            <span>{language === 'hi' ? 'चरण 5 · अंतिम समीक्षा व पुष्टि' : 'Step 5 of 5 · Review & Confirm'}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clinic-600">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-clinic-100 text-clinic-700 text-[11px]">
+                5
+              </span>
+              <span>{language === 'hi' ? 'चरण 5 · अंतिम समीक्षा व पुष्टि' : 'Step 5 of 5 · Review & Confirm'}</span>
+            </div>
+            <ContextualHelp
+              titleEn="Intake Review"
+              titleHi="समीक्षा व पुष्टि"
+              explanationEn="Check the information carefully before continuing."
+              explanationHi="आगे बढ़ने से पहले दर्ज की गई जानकारी को ध्यान से जांचें।"
+            />
           </div>
 
           <h1 className="mt-3 font-display text-3xl font-semibold text-ink sm:text-4xl">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import AppHeader from "../../components/AppHeader";
 import VoiceInputButton from "../../components/VoiceInputButton";
+import ContextualHelp from "../../components/ContextualHelp";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { classifyFreeText, classifyFromQuickButton, classifyRouted, SUPPORTED_COMPLAINTS, type ComplaintClassification } from "./services/complaintClassifier";
 import { usePatientSession } from "./state/PatientSessionContext";
@@ -121,11 +122,19 @@ function handleContinue() {
       <div>
         <AppHeader />
         <main className="mx-auto max-w-2xl px-6 pb-20 pt-6">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clinic-600">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-clinic-100 text-clinic-700 text-[11px]">
-              2
-            </span>
-            <span>{t.complaint.progressLabel}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clinic-600">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-clinic-100 text-clinic-700 text-[11px]">
+                2
+              </span>
+              <span>{t.complaint.progressLabel}</span>
+            </div>
+            <ContextualHelp
+              titleEn="Chief Complaint"
+              titleHi="मुख्य लक्षण"
+              explanationEn="Select the problem you came to the doctor about today."
+              explanationHi="वह मुख्य समस्या चुनें जिसके लिए आप आज डॉक्टर के पास आए हैं।"
+            />
           </div>
 
           {step === "input" && (
