@@ -8,7 +8,11 @@ export function generateClinicalSummary(complaint:ChiefComplaintRecord|null,answ
  out.push('','History of present illness:');
  if(answers && Object.keys(answers).length) for(const [field,v] of Object.entries(answers)){ const r=reviews.find(x=>x.field===field); out.push(`• ${labelField(field)}: ${r?.status==='edited'?r.editedValue:valueText(v)} [source: patient; ${r?.status??'unverified'}]`); } else out.push('• Not reported');
  if(background){ out.push('','Background history:'); for(const [field,v] of Object.entries(background)) out.push(`• ${labelField(field)}: ${v||'Not reported'}`); }
- if(documents.length){ out.push('','Prior records:'); for(const doc of documents) for(const e of doc.entities) out.push(`• ${e.type}: ${e.value} [${e.confidence}; source: ${doc.name}]`); }
+  if(documents.length){
+    const docNames = Array.from(new Set(documents.map(d => d.name).filter(Boolean))).join(', ');
+    out.push('', `Prior records (Source: ${docNames || 'Uploaded documents'}):`);
+    for(const doc of documents) for(const e of doc.entities) out.push(`• ${e.type}: ${e.value}`);
+  }
  if(flags.length){ out.push('','Safety flags:'); for(const f of flags) out.push(`• ${f.severity.toUpperCase()}: ${f.title} — ${f.explanation}`); } else out.push('','Safety flags: None configured for this session.');
  out.push('','Clinical safety note: Draft for physician review. Not a diagnosis or treatment recommendation.');
  return out.join('\n');
