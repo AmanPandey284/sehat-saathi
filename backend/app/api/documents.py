@@ -82,22 +82,16 @@ def _safe_filename(name: str) -> str:
 
 def _build_tesseract_lang() -> str:
     """
-    Detect available Tesseract languages once and return the
-    language string to use for all subsequent OCR calls.
-    Called at module import; result is stored in
-    _TESSERACT_LANG below.
+    Always return English for OCR.
+
+    Render's free tier (512 MB RAM, shared CPU) cannot
+    sustain the dual eng+hin LSTM model without running
+    out of memory on real photos and taking 170+ seconds
+    even on small images.  Printed Indian medical documents
+    (lab reports, prescriptions, discharge summaries) use
+    Latin/English alphanumeric values for all structured
+    fields that matter for extraction.
     """
-    try:
-        import pytesseract as _pt
-
-        available = set(
-            _pt.get_languages(config="")
-        )
-    except Exception:
-        available = {"eng"}
-
-    if {"eng", "hin"}.issubset(available):
-        return "eng+hin"
     return "eng"
 
 
@@ -162,14 +156,9 @@ def _ocr_image(
             f"{image.width}x{image.height}"
         )
 
-        # -------------------------------------------------
-        # Resize large camera/WhatsApp images.
-        #
-        # This keeps OCR practical on Render while
-        # preserving enough resolution for medical text.
-        # -------------------------------------------------
-
-        max_dimension = 1800
+        # Cap at 1200px: sharp enough for printed medical text,
+        # safely within Render's 512 MB RAM limit.
+        max_dimension = 1200
 
         if max(image.size) > max_dimension:
             scale = (
@@ -216,27 +205,27 @@ def _ocr_image(
         )
 
         # -------------------------------------------------
-        # Fix 2: use OEM 1 (legacy Tesseract 3 engine) instead
-        #        of OEM 3 (LSTM neural net).
+        # Limit Tesseract to a single OpenMP thread.
         #
-        #        OEM 1 is 3–5x faster on Render's shared free-tier
-        #        CPU with acceptable accuracy for printed medical
-        #        documents (lab reports, prescriptions).
-        #
-        #        PSM 3: fully automatic page segmentation,
-        #        suitable for multi-block medical reports.
+        # Render's free tier is a single shared vCPU.
+        # Multi-threaded Tesseract causes thread-switching
+        # starvation and memory spikes that exceed the
+        # 512 MB container limit on real camera photos.
         # -------------------------------------------------
 
+        import os as _os
+        _os.environ["OMP_THREAD_LIMIT"] = "1"
+
+        # PSM 3: fully automatic page segmentation,
+        # suitable for multi-block medical reports.
         config = (
-            "--oem 1 "
+            "--oem 3 "
             "--psm 3 "
             "-c preserve_interword_spaces=1"
         )
 
         # -------------------------------------------------
         # OCR
-        #
-        # NO timeout is intentionally specified.
         # -------------------------------------------------
 
         try:

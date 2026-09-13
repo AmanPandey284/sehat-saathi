@@ -61,11 +61,10 @@ export interface OCRDocumentResponse {
   } | null;
 }
 
-// Fix 3: 90-second abort timeout so the UI never freezes forever.
-// On large real-world images the Render free-tier backend can take
-// 30–60 s; 90 s gives a generous margin while still surfacing a clear
-// error (AbortError) instead of an infinite spinner.
-const OCR_TIMEOUT_MS = 90_000;
+// 120-second abort timeout. With English-only OCR and 1200px cap,
+// real photos complete in ~20–35 s on Render. 120 s gives a safe
+// buffer for cold starts without freezing the UI indefinitely.
+const OCR_TIMEOUT_MS = 120_000;
 
 export async function ocrDocument(
   file: File,
