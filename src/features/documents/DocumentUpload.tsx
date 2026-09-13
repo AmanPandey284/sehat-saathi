@@ -622,7 +622,7 @@ function MedicalResult({ item }: { item: any }) {
         <p>
           Reference:{" "}
           <strong>
-            {item.referenceRange ?? "Not available"}
+            {item.referenceRange ?? item.reference_range ?? "Not available"}
           </strong>
         </p>
 

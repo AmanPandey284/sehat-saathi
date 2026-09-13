@@ -238,6 +238,8 @@ def extract_vitals(lines: list[str], gender: str | None) -> list[dict[str, Any]]
                 "name": name,
                 "patientValue": value,
                 "unit": "mmHg" if name == "Blood Pressure" else None,
+                "referenceRange": c.get("reference_range"),
+                "referenceSource": c.get("reference_source"),
                 **{k: c.get(k) for k in (
                     "reference_range", "reference_source", "status", "attention", "comparison"
                 )},
@@ -383,7 +385,9 @@ def extract_lab_results(lines: list[str], gender: str | None) -> list[dict[str, 
             "patientValue": current,
             "previousValue": previous,
             "referenceRange": c.get("reference_range"),
+            "reference_range": c.get("reference_range"),
             "referenceSource": c.get("reference_source"),
+            "reference_source": c.get("reference_source"),
             "status": c.get("status"),
             "attention": c.get("attention"),
             "comparison": c.get("comparison"),
