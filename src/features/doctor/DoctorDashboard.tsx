@@ -432,6 +432,32 @@ export default function DoctorDashboard() {
 
             </div>
 
+            {/* Compact Emergency Contact Card (Shown only when emergency contact exists) */}
+            {patientProfile?.emergencyContact && patientProfile.emergencyContact.guardianName && (
+              <div className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50/80 p-3.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 flex items-center gap-1">
+                    <span>🚨</span> Emergency Contact
+                  </span>
+                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                    {patientProfile.emergencyContact.relationship}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs font-semibold text-ink">
+                  {patientProfile.emergencyContact.guardianName}
+                </p>
+                <p className="text-xs text-muted font-mono mt-0.5">
+                  {patientProfile.emergencyContact.phoneNumber}
+                </p>
+                <a
+                  href={`tel:${patientProfile.emergencyContact.phoneNumber.replace(/\s+/g, '')}`}
+                  className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-rose-700 transition"
+                >
+                  <span>📞</span> Call
+                </a>
+              </div>
+            )}
+
             <div className="mt-5 space-y-2">
 
               {(

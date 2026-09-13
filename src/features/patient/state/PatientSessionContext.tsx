@@ -3,8 +3,13 @@ import type { ComplaintId } from '../services/complaintClassifier';
 import type { AnswerValue } from '../engine/types';
 import type { AnswerEvidence } from '../services/clinicalNormalizer';
 
+export interface EmergencyContact {
+  guardianName: string;
+  relationship: 'Mother' | 'Father' | 'Guardian' | string;
+  phoneNumber: string;
+}
 export interface ChiefComplaintRecord { complaintId: ComplaintId; displayName: string; originalInput: string; confidence: number; source: 'patient'; }
-export interface PatientProfile { name: string; age: string; sex: string; identifier: string; identifierType: 'demo' | 'abha'; language: 'en' | 'hi'; }
+export interface PatientProfile { name: string; age: string; sex: string; identifier: string; identifierType: 'demo' | 'abha'; language: 'en' | 'hi'; emergencyContact?: EmergencyContact; }
 export interface BackgroundHistory { pastMedical: string; pastSurgical: string; medications: string; allergies: string; family: string; personal: string; reviewOfSystems: string; }
 export interface ClinicalDocument {
   id: string; name: string; type: string; uploadedAt: string; text: string;

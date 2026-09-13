@@ -16,6 +16,9 @@ export default function PatientProfile() {
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [sex, setSex] = useState('');
+  const [guardianName, setGuardianName] = useState('');
+  const [relationship, setRelationship] = useState<'Mother' | 'Father' | 'Guardian'>('Mother');
+  const [guardianPhone, setGuardianPhone] = useState('');
   const [error, setError] = useState('');
 
   const go = () => {
@@ -23,13 +26,40 @@ export default function PatientProfile() {
       setError(language === 'hi' ? 'नाम और उम्र दर्ज करें।' : 'Please enter name and age.');
       return;
     }
+
+    // Emergency Contact validation
+    const hasEmergencyInput = Boolean(guardianName.trim() || guardianPhone.trim());
+    let emergencyContact: { guardianName: string; relationship: string; phoneNumber: string } | undefined;
+
+    if (hasEmergencyInput) {
+      if (!guardianName.trim()) {
+        setError(language === 'hi' ? 'कृपया अभिभावक का नाम दर्ज करें।' : 'Please enter guardian name.');
+        return;
+      }
+      const digits = guardianPhone.replace(/\D/g, '');
+      if (digits.length !== 10) {
+        setError(
+          language === 'hi'
+            ? 'कृपया 10-अंकीय मान्य मोबाइल नंबर दर्ज करें।'
+            : 'Please enter a valid 10-digit phone number.'
+        );
+        return;
+      }
+      emergencyContact = {
+        guardianName: guardianName.trim(),
+        relationship,
+        phoneNumber: guardianPhone.trim(),
+      };
+    }
+
     setPatientProfile({
       name: name.trim(),
       age: age.trim(),
       sex,
       identifier: `DEMO-${Date.now()}`,
       identifierType: 'demo',
-      language
+      language,
+      emergencyContact,
     });
     nav('/patient');
   };
@@ -99,6 +129,69 @@ export default function PatientProfile() {
                     <option value="Male">{language === 'hi' ? 'पुरुष' : 'Male'}</option>
                     <option value="Other">{language === 'hi' ? 'अन्य' : 'Other'}</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Emergency Contact Section */}
+              <div className="mt-4 rounded-2xl border border-clinic-100 bg-clinic-50/50 p-4 sm:p-5">
+                <div className="flex items-center gap-2">
+                  <span className="text-base" aria-hidden>🚨</span>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-clinic-800">
+                      {language === 'hi' ? 'आपातकालीन संपर्क' : 'Emergency Contact'}
+                    </h3>
+                    <p className="text-[11px] text-muted">
+                      {language === 'hi'
+                        ? 'आपात स्थिति में अस्पताल द्वारा परिवार से संपर्क हेतु (वैकल्पिक)'
+                        : 'Family / parent contact for hospital staff in an emergency (Optional)'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted">
+                      {language === 'hi' ? 'अभिभावक का नाम' : 'Guardian Name'}
+                    </label>
+                    <input
+                      type="text"
+                      value={guardianName}
+                      onChange={(e) => { setGuardianName(e.target.value); setError(''); }}
+                      placeholder={language === 'hi' ? 'जैसे: सुनीता देवी' : 'e.g. Sunita Devi'}
+                      className="mt-1 w-full rounded-xl border border-clinic-200 bg-white px-4 py-2.5 text-sm text-ink focus:border-clinic-500 focus:outline-none focus:ring-2 focus:ring-clinic-100 transition"
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-muted">
+                        {language === 'hi' ? 'संबंध' : 'Relationship'}
+                      </label>
+                      <select
+                        value={relationship}
+                        onChange={(e) => setRelationship(e.target.value as 'Mother' | 'Father' | 'Guardian')}
+                        className="mt-1 w-full rounded-xl border border-clinic-200 bg-white px-4 py-2.5 text-sm text-ink focus:border-clinic-500 focus:outline-none focus:ring-2 focus:ring-clinic-100 transition"
+                      >
+                        <option value="Mother">{language === 'hi' ? 'माता (Mother)' : 'Mother'}</option>
+                        <option value="Father">{language === 'hi' ? 'पिता (Father)' : 'Father'}</option>
+                        <option value="Guardian">{language === 'hi' ? 'अभिभावक (Guardian)' : 'Guardian'}</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-muted">
+                        {language === 'hi' ? 'फोन नंबर' : 'Phone Number'}
+                      </label>
+                      <input
+                        inputMode="tel"
+                        type="tel"
+                        value={guardianPhone}
+                        onChange={(e) => { setGuardianPhone(e.target.value); setError(''); }}
+                        placeholder="e.g. 9876543210"
+                        className="mt-1 w-full rounded-xl border border-clinic-200 bg-white px-4 py-2.5 text-sm text-ink focus:border-clinic-500 focus:outline-none focus:ring-2 focus:ring-clinic-100 transition"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

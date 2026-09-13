@@ -41,6 +41,11 @@ const DEMO_SEEDS: StoredPatientRecord[] = [
       identifier: "ABHA-91-4458-1200",
       identifierType: "abha",
       language: "en",
+      emergencyContact: {
+        guardianName: "Sunita Patel",
+        relationship: "Mother",
+        phoneNumber: "9876543210",
+      },
     },
     chiefComplaint: {
       complaintId: "cough",
