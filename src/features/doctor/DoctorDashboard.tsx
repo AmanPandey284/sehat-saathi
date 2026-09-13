@@ -502,6 +502,119 @@ export default function DoctorDashboard() {
             {/* SUMMARY TAB */}
             {tab === 'summary' && (
               <>
+                {/* WHAT CHANGED SINCE LAST VISIT? (Returning Patient Longitudinal Delta) */}
+                {activeRecord?.longitudinalChanges && (
+                  <div className="rounded-2xl border-2 border-clinic-500/30 bg-gradient-to-br from-white to-clinic-50/50 p-6 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-clinic-100 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-clinic-600 text-white font-bold text-sm shadow-2xs">
+                          Δ
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="font-display text-lg font-semibold text-ink">
+                              What Changed Since Last Visit?
+                            </h2>
+                            <span className="rounded-full bg-clinic-100 px-2 py-0.5 text-[10px] font-bold text-clinic-700">
+                              Zero-Repetition Longitudinal Delta
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted">
+                            Highlights what is new, changed, or confirmed unchanged since previous consultation.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="rounded-full bg-clinic-100 px-3 py-1 text-xs font-semibold text-clinic-800">
+                        {activeRecord.longitudinalChanges.visitReasonLabel}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {/* 1. Today's Visit Context */}
+                      <div className="rounded-xl bg-white p-3.5 border border-clinic-100 shadow-2xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-clinic-700 block">
+                          Today's Visit Reason
+                        </span>
+                        <p className="mt-1 text-xs font-semibold text-ink">
+                          {activeRecord.longitudinalChanges.visitReasonLabel}
+                        </p>
+                        {activeRecord.longitudinalChanges.followUpStatus && (
+                          <p className="mt-1 text-[11px] text-clinic-800">
+                            Status: <strong className="uppercase">{activeRecord.longitudinalChanges.followUpStatus}</strong>
+                          </p>
+                        )}
+                        {activeRecord.longitudinalChanges.naturalLanguageUpdate && (
+                          <p className="mt-1.5 text-[11px] text-muted italic line-clamp-3">
+                            “{activeRecord.longitudinalChanges.naturalLanguageUpdate}”
+                          </p>
+                        )}
+                      </div>
+
+                      {/* 2. New Since Last Visit */}
+                      <div className="rounded-xl bg-white p-3.5 border border-clinic-100 shadow-2xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-clinic-700 block">
+                          New Since Last Visit
+                        </span>
+                        <ul className="mt-1 space-y-1 text-[11px]">
+                          {activeRecord.longitudinalChanges.changedConditions.length > 0 ? (
+                            activeRecord.longitudinalChanges.changedConditions.map((c, i) => (
+                              <li key={i} className="text-amber-800 font-medium">
+                                • {c.name}: {c.status}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-muted">• No chronic condition changes</li>
+                          )}
+                          {activeRecord.longitudinalChanges.hospitalizationSinceLastVisit && (
+                            <li className="text-red-700 font-semibold">
+                              • Hospitalization: {activeRecord.longitudinalChanges.hospitalizationDetails || "Yes"}
+                            </li>
+                          )}
+                          {activeRecord.longitudinalChanges.newDocumentsCount > 0 && (
+                            <li className="text-clinic-700 font-medium">
+                              • {activeRecord.longitudinalChanges.newDocumentsCount} new document(s) added
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+
+                      {/* 3. Medication Changes */}
+                      <div className="rounded-xl bg-white p-3.5 border border-clinic-100 shadow-2xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-clinic-700 block">
+                          Medication Status
+                        </span>
+                        <div className="mt-1 space-y-1 text-[11px]">
+                          {activeRecord.longitudinalChanges.changedMedications.length > 0 ? (
+                            activeRecord.longitudinalChanges.changedMedications.map((m, i) => (
+                              <p key={i} className={m.status === 'stopped' ? 'text-red-700 font-medium' : 'text-amber-800 font-medium'}>
+                                • {m.name}: <span className="font-bold uppercase text-[9px] px-1 py-0.5 rounded bg-slate-100">{m.status}</span>
+                              </p>
+                            ))
+                          ) : (
+                            <p className="text-muted">• No medication changes</p>
+                          )}
+                          {activeRecord.longitudinalChanges.unchangedMedications.length > 0 && (
+                            <p className="text-muted text-[10px] mt-1 line-clamp-2">
+                              Continued: {activeRecord.longitudinalChanges.unchangedMedications.join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 4. Verified Unchanged Baseline */}
+                      <div className="rounded-xl bg-white p-3.5 border border-clinic-100 shadow-2xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-clinic-700 block">
+                          Verified Unchanged Baseline
+                        </span>
+                        <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                          <strong>Conditions:</strong> {activeRecord.longitudinalChanges.unchangedConditions.join(', ') || 'None'}<br />
+                          <strong>Allergies:</strong> {activeRecord.longitudinalChanges.allergiesNote || 'NKDA'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
 
                   <div className="flex flex-wrap items-start justify-between gap-4">

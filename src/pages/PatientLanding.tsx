@@ -9,13 +9,11 @@ export default function PatientLanding() {
   const navigate = useNavigate();
 
   const startNewConsultation = () => {
-    // A new patient/consultation must never inherit answers or uploaded
-    // records from the previous consultation stored in browser state.
     resetSession();
     try {
       sessionStorage.removeItem("sehatSaathi_adaptive_analysis");
     } catch {}
-    navigate("/patient/consent");
+    navigate("/patient/entry");
   };
 
   const workflowSteps = [

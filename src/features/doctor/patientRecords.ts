@@ -25,6 +25,7 @@ export interface StoredPatientRecord {
   doctorReviews: DoctorReview[];
   ayushHistory: AyushHistory;
   reviewStatus: "pending" | "reviewed";
+  longitudinalChanges?: import("../patient/returningPatientModel").LongitudinalChanges;
 }
 
 const STORAGE_KEY = "sehatSaathi_patient_records_v1";
@@ -116,6 +117,23 @@ const DEMO_SEEDS: StoredPatientRecord[] = [
     doctorReviews: [],
     ayushHistory: {},
     reviewStatus: "pending",
+    longitudinalChanges: {
+      visitReason: "follow_up",
+      visitReasonLabel: "Follow-up on previous consultation",
+      previousConsultationDate: new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString(),
+      previousComplaint: "Type 2 Diabetes Routine Review",
+      followUpStatus: "worse",
+      followUpNotes: "New cough and breathlessness developed 4 days ago.",
+      unchangedConditions: ["Type 2 Diabetes Mellitus (5 yrs)"],
+      changedConditions: [],
+      unchangedMedications: ["Metformin 500mg BD"],
+      changedMedications: [],
+      allergiesStatus: "unchanged",
+      allergiesNote: "No known drug allergies",
+      hospitalizationSinceLastVisit: false,
+      naturalLanguageUpdate: "Cough started 4 days ago with breathlessness; diabetes stable.",
+      newDocumentsCount: 0,
+    },
   },
   {
     id: "DEMO-REC-002",

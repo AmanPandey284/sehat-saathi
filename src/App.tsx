@@ -7,6 +7,14 @@ import PatientLanding from './pages/PatientLanding';
 import ComingSoon from './pages/ComingSoon';
 import ConsentScreen from './features/patient/ConsentScreen';
 import PatientProfile from './pages/PatientProfile';
+import PatientEntryChoice from './pages/PatientEntryChoice';
+import ExistingPatientPlaceholder from './pages/ExistingPatientPlaceholder';
+import ExistingPatientLookup from './pages/ExistingPatientLookup';
+import ReturningPatientHome from './pages/ReturningPatientHome';
+import ReturningPatientChanges from './pages/ReturningPatientChanges';
+import ReturningPatientSafety from './pages/ReturningPatientSafety';
+import ReturningPatientOptions from './pages/ReturningPatientOptions';
+import ReturningPatientDocuments from './pages/ReturningPatientDocuments';
 import ChiefComplaintFlow from './features/patient/ChiefComplaintFlow';
 import AdaptiveHistoryFlow from './features/patient/AdaptiveHistoryFlow';
 import PatientDocuments from './pages/PatientDocuments';
@@ -25,6 +33,14 @@ export default function App(){
         <DoctorAuthProvider>
           <Routes>
             <Route path="/" element={<PatientLanding/>}/>
+            <Route path="/patient/entry" element={<PatientEntryChoice/>}/>
+            <Route path="/patient/existing" element={<ExistingPatientPlaceholder/>}/>
+            <Route path="/patient/lookup" element={<ExistingPatientLookup/>}/>
+            <Route path="/patient/returning" element={<ReturningPatientHome/>}/>
+            <Route path="/patient/returning/changes" element={<ReturningPatientChanges/>}/>
+            <Route path="/patient/returning/safety" element={<ReturningPatientSafety/>}/>
+            <Route path="/patient/returning/options" element={<ReturningPatientOptions/>}/>
+            <Route path="/patient/returning/documents" element={<ReturningPatientDocuments/>}/>
             <Route path="/patient/consent" element={<ConsentScreen/>}/>
             <Route path="/patient/profile" element={<PatientProfile/>}/>
             <Route path="/patient" element={<ChiefComplaintFlow/>}/>
