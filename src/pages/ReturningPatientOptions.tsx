@@ -9,6 +9,7 @@ import {
   type ReturningPatientSession,
 } from "../features/patient/returningPatientModel";
 import { savePatientRecord, type StoredPatientRecord } from "../features/doctor/patientRecords";
+import { determineSuggestedRouting } from "../features/routing/routingService";
 
 export default function ReturningPatientOptions() {
   const nav = useNavigate();
@@ -56,19 +57,36 @@ export default function ReturningPatientOptions() {
       ...(previousRecord.timeline || []),
     ];
 
+    const effectiveComplaint = session.chiefComplaint || {
+      complaintId: previousRecord.chiefComplaint?.complaintId || "custom",
+      displayName: `${changes.visitReasonLabel}: ${changes.followUpStatus ? `Status ${changes.followUpStatus}` : previousRecord.chiefComplaint?.displayName}`,
+      originalInput: changes.naturalLanguageUpdate || changes.visitReasonLabel,
+      confidence: 1.0,
+      source: "patient" as const,
+    };
+
+    const combinedSafetyFlags = [
+      ...(previousRecord.safetyFlags || []),
+      ...session.safetyFlags,
+    ];
+
+    // FIX 1: Routing for today evaluates ONLY the current visit's safety status (session.safetyFlags).
+    // Historical safety flags are preserved in combinedSafetyFlags for record continuity,
+    // but must not cause today's safe follow-up encounter to falsely route to Emergency.
+    const suggestedRouting = determineSuggestedRouting({
+      complaintId: effectiveComplaint.complaintId,
+      displayName: effectiveComplaint.displayName,
+      originalInput: effectiveComplaint.originalInput,
+      safetyFlags: session.safetyFlags,
+    });
+
     // Build the updated stored patient record
     const updatedRecord: StoredPatientRecord = {
       ...previousRecord,
       id: previousRecord.id,
       submittedAt: nowIso,
       patientProfile: previousRecord.patientProfile,
-      chiefComplaint: session.chiefComplaint || {
-        complaintId: previousRecord.chiefComplaint?.complaintId || "custom",
-        displayName: `${changes.visitReasonLabel}: ${changes.followUpStatus ? `Status ${changes.followUpStatus}` : previousRecord.chiefComplaint?.displayName}`,
-        originalInput: changes.naturalLanguageUpdate || changes.visitReasonLabel,
-        confidence: 1.0,
-        source: "patient",
-      },
+      chiefComplaint: effectiveComplaint,
       historyAnswers: {
         ...previousRecord.historyAnswers,
         ...(session.historyAnswers || {}),
@@ -76,7 +94,7 @@ export default function ReturningPatientOptions() {
         returning_followup_status: changes.followUpStatus || "not_applicable",
       },
       evidence: [...(previousRecord.evidence || []), ...session.evidence],
-      safetyFlags: [...(previousRecord.safetyFlags || []), ...session.safetyFlags],
+      safetyFlags: combinedSafetyFlags,
       documents: session.documents.length > 0 ? session.documents : previousRecord.documents,
       backgroundHistory: {
         ...previousRecord.backgroundHistory,
@@ -92,6 +110,7 @@ export default function ReturningPatientOptions() {
       ayushHistory: previousRecord.ayushHistory || {},
       reviewStatus: "pending",
       longitudinalChanges: changes,
+      suggestedRouting,
     };
 
     savePatientRecord(updatedRecord);

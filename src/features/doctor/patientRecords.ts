@@ -10,6 +10,7 @@ import type {
 } from "../patient/state/PatientSessionContext";
 import type { AnswerValue } from "../patient/engine/types";
 import type { AnswerEvidence } from "../patient/services/clinicalNormalizer";
+import type { SuggestedRouting } from "../routing/routingTypes";
 
 export interface StoredPatientRecord {
   id: string;
@@ -26,6 +27,7 @@ export interface StoredPatientRecord {
   ayushHistory: AyushHistory;
   reviewStatus: "pending" | "reviewed";
   longitudinalChanges?: import("../patient/returningPatientModel").LongitudinalChanges;
+  suggestedRouting?: SuggestedRouting;
 }
 
 const STORAGE_KEY = "sehatSaathi_patient_records_v1";
@@ -203,6 +205,12 @@ const DEMO_SEEDS: StoredPatientRecord[] = [
       "Ahara Shakti": "Amlapitta tendency, spicy food aggravation",
     },
     reviewStatus: "reviewed",
+    suggestedRouting: {
+      suggestedDepartment: "General Medicine",
+      routingStatus: "suggested",
+      rationale: "Patient-reported complaint category: Abdominal Pain",
+      determinedAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
+    },
   },
 ];
 

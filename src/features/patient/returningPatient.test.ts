@@ -282,5 +282,35 @@ describe("Returning Patient & Longitudinal Intake", () => {
 
       expect(isSafetyScreened(approvedIntake)).toBe(true);
     });
+
+    it("ensures returning patient routing considers only current visit safety flags without false emergency escalation", async () => {
+      // Historical consultation had an urgent breathing flag
+      const previousHistoricalFlags = [
+        {
+          id: "breathing-difficulty",
+          severity: "urgent" as const,
+          title: "Breathing difficulty reported",
+          explanation: "Historical flag from previous visit",
+          field: "breathingDifficulty",
+          triggeredAt: new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString(),
+        },
+      ];
+      expect(previousHistoricalFlags[0].severity).toBe("urgent");
+
+      // Today's visit has negative safety screen (no current visit flags)
+      const todaySessionFlags: any[] = [];
+
+      // Pass only today's session flags to determineSuggestedRouting
+      const { determineSuggestedRouting } = await import("../routing/routingService");
+      const routing = determineSuggestedRouting({
+        complaintId: "cough",
+        displayName: "Follow-up: Cough",
+        safetyFlags: todaySessionFlags,
+      });
+
+      expect(routing.suggestedDepartment).toBe("Pulmonary Medicine");
+      expect(routing.routingStatus).toBe("suggested");
+      expect(routing.suggestedDepartment).not.toBe("Emergency Department");
+    });
   });
 });

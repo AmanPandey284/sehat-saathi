@@ -13,6 +13,8 @@ import {
   updatePatientRecord,
   type StoredPatientRecord,
 } from './patientRecords';
+import { AVAILABLE_HOSPITAL_DEPARTMENTS } from '../routing/routingRules';
+import type { HospitalDepartment, SuggestedRouting } from '../routing/routingTypes';
 
 function downloadJson(data: unknown, filename: string) {
   const blob = new Blob(
@@ -206,6 +208,18 @@ export default function DoctorDashboard() {
     }
   };
 
+  const handleReassignDepartment = (recordId: string, newDept: HospitalDepartment) => {
+    if (!activeRecord) return;
+    const updatedRouting: SuggestedRouting = {
+      suggestedDepartment: newDept,
+      routingStatus: "staff_reassigned",
+      rationale: `Reassigned by clinical staff to ${newDept}`,
+      determinedAt: new Date().toISOString(),
+    };
+    updatePatientRecord(recordId, { suggestedRouting: updatedRouting });
+    setRecords(getStoredPatientRecords());
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/doctor/login', { replace: true });
@@ -370,6 +384,29 @@ export default function DoctorDashboard() {
                     {formatComplaintLabel(rec.chiefComplaint)}
                   </p>
 
+                  {rec.suggestedRouting?.suggestedDepartment && (
+                    <span
+                      className={`mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium truncate max-w-full ${
+                        rec.suggestedRouting.routingStatus === 'emergency_escalated'
+                          ? 'bg-rose-100 text-rose-800'
+                          : rec.suggestedRouting.routingStatus === 'staff_reassigned'
+                          ? 'bg-indigo-50 text-indigo-700'
+                          : 'bg-clinic-50 text-clinic-700'
+                      }`}
+                    >
+                      <span>
+                        {rec.suggestedRouting.routingStatus === 'emergency_escalated'
+                          ? '🚨 Emergency Escalated:'
+                          : rec.suggestedRouting.routingStatus === 'staff_reassigned'
+                          ? '👤 Staff Reassigned:'
+                          : rec.suggestedRouting.routingStatus === 'general_triage'
+                          ? '📋 General Triage:'
+                          : '🏥 Suggested:'}
+                      </span>
+                      <span className="font-semibold">{rec.suggestedRouting.suggestedDepartment}</span>
+                    </span>
+                  )}
+
                   <div className="mt-2 flex w-full items-center justify-between text-[11px] text-muted">
                     <span>{rec.patientProfile?.age ? `${rec.patientProfile.age}y` : ''} · {rec.patientProfile?.sex || '—'}</span>
                     {hasUrgent && (
@@ -457,6 +494,105 @@ export default function DoctorDashboard() {
                 </a>
               </div>
             )}
+
+            {/* Hospital Routing Section */}
+            <div
+              className={`mt-3 rounded-xl border p-3.5 shadow-2xs ${
+                activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated'
+                  ? 'border-rose-300 bg-rose-50/70'
+                  : activeRecord?.suggestedRouting?.routingStatus === 'staff_reassigned'
+                  ? 'border-indigo-200/80 bg-indigo-50/60'
+                  : 'border-clinic-200/80 bg-clinic-50/60'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                    activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated'
+                      ? 'text-rose-800'
+                      : activeRecord?.suggestedRouting?.routingStatus === 'staff_reassigned'
+                      ? 'text-indigo-800'
+                      : 'text-clinic-800'
+                  }`}
+                >
+                  <span>{activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated' ? '🚨' : '🏥'}</span> Hospital Routing
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated'
+                      ? 'bg-rose-200 text-rose-900 font-bold'
+                      : activeRecord?.suggestedRouting?.routingStatus === 'staff_reassigned'
+                      ? 'bg-indigo-100 text-indigo-800'
+                      : activeRecord?.suggestedRouting?.routingStatus === 'general_triage'
+                      ? 'bg-amber-100 text-amber-900'
+                      : 'bg-clinic-100 text-clinic-800'
+                  }`}
+                >
+                  {activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated'
+                    ? 'Emergency Escalated'
+                    : activeRecord?.suggestedRouting?.routingStatus === 'staff_reassigned'
+                    ? 'Staff Reassigned'
+                    : activeRecord?.suggestedRouting?.routingStatus === 'general_triage'
+                    ? 'General Triage'
+                    : 'Suggested'}
+                </span>
+              </div>
+
+              <div className="mt-2">
+                <p className="text-[10px] font-medium text-muted uppercase tracking-wider">
+                  {activeRecord?.suggestedRouting?.routingStatus === 'staff_reassigned'
+                    ? 'Assigned Department'
+                    : 'Suggested Department'}
+                </p>
+                <p
+                  className={`text-xs font-semibold mt-0.5 ${
+                    activeRecord?.suggestedRouting?.routingStatus === 'emergency_escalated'
+                      ? 'text-rose-900 font-bold'
+                      : 'text-ink'
+                  }`}
+                >
+                  {activeRecord?.suggestedRouting?.suggestedDepartment || 'General OPD / Triage Desk'}
+                </p>
+              </div>
+
+              <div className="mt-2">
+                <p className="text-[10px] font-medium text-muted uppercase tracking-wider">Basis</p>
+                <p className="text-[11px] text-muted leading-snug mt-0.5">
+                  {activeRecord?.suggestedRouting?.rationale || 'Standard intake completed; pending department assignment'}
+                </p>
+              </div>
+
+              {/* Human Staff Reassignment Control */}
+              {activeRecord && (
+                activeRecord.suggestedRouting?.routingStatus === 'emergency_escalated' ? (
+                  <div className="mt-3 border-t border-rose-200 pt-2 text-[11px] font-medium text-rose-800 flex items-center gap-1.5">
+                    <span>⚠️</span>
+                    <span>Emergency protocol active. Reassignment disabled — patient routed directly to ED resuscitation area.</span>
+                  </div>
+                ) : (
+                  <div className="mt-3 border-t border-clinic-200/60 pt-2.5">
+                    <label htmlFor="dept-reassign-select" className="text-[10px] font-semibold text-clinic-900 block mb-1">
+                      Reassign Department:
+                    </label>
+                    <select
+                      id="dept-reassign-select"
+                      value={activeRecord.suggestedRouting?.suggestedDepartment || 'General OPD / Triage Desk'}
+                      onChange={(e) => {
+                        const newDept = e.target.value as HospitalDepartment;
+                        handleReassignDepartment(activeRecord.id, newDept);
+                      }}
+                      className="w-full rounded-lg border border-clinic-200 bg-white px-2 py-1.5 text-xs text-ink focus:border-clinic-500 focus:outline-none transition shadow-2xs"
+                    >
+                      {AVAILABLE_HOSPITAL_DEPARTMENTS.map((dept) => (
+                        <option key={dept} value={dept}>
+                          {dept}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              )}
+            </div>
 
             <div className="mt-5 space-y-2">
 

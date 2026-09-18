@@ -6,6 +6,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { usePatientSession } from '../features/patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../features/history/recordUtils';
 import { savePatientRecord, type StoredPatientRecord } from '../features/doctor/patientRecords';
+import { determineSuggestedRouting } from '../features/routing/routingService';
 
 const backgroundLabels: Record<string, string> = {
   pastMedical: 'Past Medical History',
@@ -36,6 +37,12 @@ export default function PatientReview() {
         s.documents,
         s.backgroundHistory
       );
+      const suggestedRouting = determineSuggestedRouting({
+        complaintId: s.chiefComplaint.complaintId,
+        displayName: s.chiefComplaint.displayName,
+        originalInput: s.chiefComplaint.originalInput,
+        safetyFlags: s.safetyFlags,
+      });
       const record: StoredPatientRecord = {
         id: s.patientProfile.identifier || `REC-${Date.now()}`,
         submittedAt: new Date().toISOString(),
@@ -49,7 +56,8 @@ export default function PatientReview() {
         timeline: s.timeline.length > 0 ? s.timeline : generatedTimeline,
         doctorReviews: s.doctorReviews,
         ayushHistory: s.ayushHistory,
-        reviewStatus: 'pending'
+        reviewStatus: 'pending',
+        suggestedRouting,
       };
       savePatientRecord(record);
     }
