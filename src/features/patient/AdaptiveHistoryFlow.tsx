@@ -116,7 +116,8 @@ export default function AdaptiveHistoryFlow() {
   >([]);
 
   const [adaptiveAnsweredIds, setAdaptiveAnsweredIds] = useState<string[]>([]);
-const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
+  const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({});
+  const [retainedAdaptiveAnswers, setRetainedAdaptiveAnswers] = useState<Record<string, AnswerValue>>({});
   const [adaptiveQuestionIndex, setAdaptiveQuestionIndex] = useState(0);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -206,18 +207,24 @@ const [adaptiveAnswers, setAdaptiveAnswers] = useState<Record<string, string>>({
 const submitAdaptiveAnswer = () => {
   if (!currentAdaptiveQuestion || !adaptiveAnalysis) return;
 
-  const answer = typed.trim();
-  const adaptiveSafetyText =
-  `${currentAdaptiveQuestion.text} ${answer}`;
+  const rawTyped = typed.trim();
+  const answer =
+    rawTyped ||
+    (draft !== null && draft !== undefined
+      ? Array.isArray(draft)
+        ? draft.join(", ")
+        : String(draft)
+      : "");
 
-const urgentTextFlag =
-  detectUrgentComplaintText(adaptiveSafetyText);
+  const adaptiveSafetyText = `${currentAdaptiveQuestion.text} ${answer}`;
 
-if (urgentTextFlag) {
-  setSafetyFlags([urgentTextFlag]);
-  nav("/patient/emergency");
-  return;
-}
+  const urgentTextFlag = detectUrgentComplaintText(adaptiveSafetyText);
+
+  if (urgentTextFlag) {
+    setSafetyFlags([urgentTextFlag]);
+    nav("/patient/emergency");
+    return;
+  }
 
   if (!answer) {
     setError(
@@ -229,7 +236,9 @@ if (urgentTextFlag) {
   }
 
   setError("");
-  
+
+  const semanticField =
+    currentAdaptiveQuestion.field || currentAdaptiveQuestion.id;
 
   // Add the current answer to the adaptive state
   const nextAnsweredIds = adaptiveAnsweredIds.includes(
@@ -245,21 +254,33 @@ if (urgentTextFlag) {
     ...adaptiveAnswers,
     [currentAdaptiveQuestion.id]: answer,
   };
+
+  const nextRetained = {
+    ...retainedAdaptiveAnswers,
+    [semanticField]: answer,
+  };
+  setRetainedAdaptiveAnswers(nextRetained);
+
   const safetyFlags = evaluateSafety({
-  ...(engine?.getState().answers ?? {}),
-  ...nextAnswers,
-});
+    ...(engine?.getState().answers ?? {}),
+    ...nextRetained,
+    ...nextAnswers,
+  });
 
-setSafetyFlags(safetyFlags);
+  setSafetyFlags(safetyFlags);
 
-const urgentFlag = safetyFlags.find(
-  (flag) => flag.severity === "urgent",
-);
+  const urgentFlag = safetyFlags.find(
+    (flag) => flag.severity === "urgent",
+  );
 
-if (urgentFlag) {
-  nav("/patient/emergency");
-  return;
-}
+  if (urgentFlag) {
+    setHistoryAnswers({
+      ...(engine?.getState().answers ?? {}),
+      ...nextRetained,
+    });
+    nav("/patient/emergency");
+    return;
+  }
 
   // Let the adaptive engine react to the answer.
   // This can introduce additional relevant concepts/questions.
@@ -273,23 +294,21 @@ if (urgentFlag) {
     answer,
   );
 
-  // Save the answer as clinical evidence
+  // Save the answer as clinical evidence with semantic field and question text
   const evidence = normalizeClinicalAnswer(
-  `adaptive_${currentAdaptiveQuestion.id}`,
-  answer,
-);
+    semanticField,
+    answer,
+    currentAdaptiveQuestion.text,
+  );
 
-setEvidenceLocal((previous) => ({
-  ...previous,
-  [`adaptive_${currentAdaptiveQuestion.id}`]: evidence,
-}));
-
-setEvidence([
-  ...Object.values(evidenceLocal).filter(
-    (item) => item.field !== evidence.field,
-  ),
-  evidence,
-]);
+  setEvidenceLocal((previous) => {
+    const updated = {
+      ...previous,
+      [semanticField]: evidence,
+    };
+    setEvidence(Object.values(updated));
+    return updated;
+  });
 
   setAdaptiveAnalysis(adaptedState.analysis);
   setAdaptiveQuestions(adaptedState.analysis.questions);
@@ -333,9 +352,14 @@ setEvidence([
   setAdaptiveQuestions([]);
   setAdaptiveQuestionIndex(0);
   setAdaptiveAnsweredIds([]);
-  setAdaptiveAnswers({});
+  // Preserve retainedAdaptiveAnswers and seed historyAnswers
   setTyped("");
   setDraft(null);
+
+  setHistoryAnswers({
+    ...(engine?.getState().answers ?? {}),
+    ...nextRetained,
+  });
 
   // Continue normal history
   force((x) => x + 1);
@@ -359,20 +383,31 @@ setEvidence([
       return;
     }
     const stBeforeNext = engine.getState();
-    const immediateFlags = evaluateSafety(stBeforeNext.answers);
+    const immediateFlags = evaluateSafety({
+      ...retainedAdaptiveAnswers,
+      ...stBeforeNext.answers,
+    });
     setSafetyFlags(immediateFlags);
     const urgentFlag = immediateFlags.find((f) => f.severity === "urgent");
     const ev =
       evidenceLocal[active.field] ??
       normalizeClinicalAnswer(active.field, String(value ?? ""));
-    setEvidence([
-      ...Object.values(evidenceLocal).filter((e) => e.field !== ev.field),
-      ev,
-    ]);
+    setEvidenceLocal((prev) => {
+      const updated = {
+        ...prev,
+        [active.field]: ev,
+      };
+      setEvidence(Object.values(updated));
+      return updated;
+    });
     if (urgentFlag) {
-      setHistoryAnswers(stBeforeNext.answers);
+      const mergedAnswers = {
+        ...retainedAdaptiveAnswers,
+        ...stBeforeNext.answers,
+      };
+      setHistoryAnswers(mergedAnswers);
       setTimeline(
-        buildTimeline(chiefComplaint, stBeforeNext.answers, [], undefined),
+        buildTimeline(chiefComplaint, mergedAnswers, [], undefined),
       );
       nav("/patient/emergency");
       return;
@@ -389,10 +424,14 @@ setEvidence([
     }
     const st = engine.getState();
     if (engine.isComplete()) {
-      setHistoryAnswers(st.answers);
-      const flags = evaluateSafety(st.answers);
+      const mergedAnswers = {
+        ...retainedAdaptiveAnswers,
+        ...st.answers,
+      };
+      setHistoryAnswers(mergedAnswers);
+      const flags = evaluateSafety(mergedAnswers);
       setSafetyFlags(flags);
-      setTimeline(buildTimeline(chiefComplaint, st.answers, [], undefined));
+      setTimeline(buildTimeline(chiefComplaint, mergedAnswers, [], undefined));
       nav("/patient/documents");
       return;
     }
@@ -448,37 +487,56 @@ setEvidence([
       </span>
     </div>
 
-    {currentAdaptiveQuestion.type === "yes_no" && (
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => {
-            setTyped("yes");
-            setDraft("yes");
-          }}
-          className="rounded-xl border border-clinic-200 bg-white p-4 text-lg font-medium hover:border-clinic-500"
-        >
-          Yes
-        </button>
+    {currentAdaptiveQuestion.type === "yes_no" && (() => {
+      const trimmed = typed.trim().toLowerCase();
+      const isYes = draft === "yes" || trimmed === "yes" || trimmed === "हाँ";
+      const isNo = draft === "no" || trimmed === "no" || trimmed === "नहीं";
+      return (
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            data-testid="adaptive-option-yes"
+            onClick={() => {
+              setTyped("yes");
+              setDraft("yes");
+              setError("");
+            }}
+            className={`rounded-xl border p-4 text-lg font-medium transition ${
+              isYes
+                ? "border-clinic-600 bg-clinic-600 text-white font-semibold shadow-sm ring-2 ring-clinic-400/20"
+                : "border-clinic-200 bg-white text-ink hover:border-clinic-500 hover:bg-clinic-50/50"
+            }`}
+          >
+            {isYes ? "✓ " : ""}{language === "hi" ? "हाँ (Yes)" : "Yes"}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setTyped("no");
-            setDraft("no");
-          }}
-          className="rounded-xl border border-clinic-200 bg-white p-4 text-lg font-medium hover:border-clinic-500"
-        >
-          No
-        </button>
-      </div>
-    )}
+          <button
+            type="button"
+            data-testid="adaptive-option-no"
+            onClick={() => {
+              setTyped("no");
+              setDraft("no");
+              setError("");
+            }}
+            className={`rounded-xl border p-4 text-lg font-medium transition ${
+              isNo
+                ? "border-clinic-600 bg-clinic-600 text-white font-semibold shadow-sm ring-2 ring-clinic-400/20"
+                : "border-clinic-200 bg-white text-ink hover:border-clinic-500 hover:bg-clinic-50/50"
+            }`}
+          >
+            {isNo ? "✓ " : ""}{language === "hi" ? "नहीं (No)" : "No"}
+          </button>
+        </div>
+      );
+    })()}
 
     {currentAdaptiveQuestion.type === "text" && (
       <textarea
         value={typed}
         onChange={(event) => {
           setTyped(event.target.value);
+          setDraft(event.target.value);
+          if (error) setError("");
         }}
         placeholder={language === "hi" ? "थोड़ा और बताएं..." : "Tell us more..."}
         className="mt-6 min-h-28 w-full rounded-xl border border-clinic-200 p-4"
@@ -488,21 +546,75 @@ setEvidence([
     {currentAdaptiveQuestion.type === "single" &&
       currentAdaptiveQuestion.options && (
         <div className="mt-6 grid gap-3">
-          {currentAdaptiveQuestion.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                setTyped(option);
-                setDraft(option);
-              }}
-              className="rounded-xl border border-clinic-200 bg-white p-4 text-left hover:border-clinic-500"
-            >
-              {option}
-            </button>
-          ))}
+          {currentAdaptiveQuestion.options.map((option, idx) => {
+            const isSelected =
+              draft === option ||
+              typed.trim().toLowerCase() === option.toLowerCase();
+            const optionHi = currentAdaptiveQuestion.optionsHi?.[idx];
+            const displayLabel =
+              language === "hi" && optionHi ? optionHi : option;
+            return (
+              <button
+                key={option}
+                type="button"
+                data-testid={`adaptive-option-${option.toLowerCase().replace(/\s+/g, "-")}`}
+                onClick={() => {
+                  setTyped(option);
+                  setDraft(option);
+                  setError("");
+                }}
+                className={`rounded-xl border p-4 text-left font-medium transition ${
+                  isSelected
+                    ? "border-clinic-600 bg-clinic-600 text-white font-semibold shadow-sm ring-2 ring-clinic-400/20"
+                    : "border-clinic-200 bg-white text-ink hover:border-clinic-500 hover:bg-clinic-50/50"
+                }`}
+              >
+                {isSelected ? "✓ " : ""}{displayLabel}
+              </button>
+            );
+          })}
         </div>
       )}
+
+    {currentAdaptiveQuestion.type === "multi" &&
+      currentAdaptiveQuestion.options && (() => {
+        const selectedList = Array.isArray(draft)
+          ? (draft as string[])
+          : typed
+            ? typed.split(",").map((s) => s.trim())
+            : [];
+        return (
+          <div className="mt-6 grid gap-3">
+            {currentAdaptiveQuestion.options.map((option, idx) => {
+              const isSelected = selectedList.includes(option);
+              const optionHi = currentAdaptiveQuestion.optionsHi?.[idx];
+              const displayLabel =
+                language === "hi" && optionHi ? optionHi : option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    const next = isSelected
+                      ? selectedList.filter((x) => x !== option)
+                      : [...selectedList, option];
+                    setDraft(next);
+                    setTyped(next.join(", "));
+                    setError("");
+                  }}
+                  className={`rounded-xl border p-4 text-left font-medium transition ${
+                    isSelected
+                      ? "border-clinic-600 bg-clinic-600 text-white font-semibold shadow-sm ring-2 ring-clinic-400/20"
+                      : "border-clinic-200 bg-white text-ink hover:border-clinic-500 hover:bg-clinic-50/50"
+                  }`}
+                >
+                  {isSelected ? "✓ " : ""}{displayLabel}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
     {error && (
       <p className="mt-3 text-sm text-flag-700">
