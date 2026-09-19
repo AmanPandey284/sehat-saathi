@@ -3,6 +3,8 @@ import type { ComplaintId } from '../services/complaintClassifier';
 import type { AnswerValue } from '../engine/types';
 import type { AnswerEvidence } from '../services/clinicalNormalizer';
 
+import type { WorkflowTimestamps } from '../../timing/timingTypes';
+
 export interface EmergencyContact {
   guardianName: string;
   relationship: 'Mother' | 'Father' | 'Guardian' | string;
@@ -35,10 +37,11 @@ interface PatientSessionValue {
   timeline: TimelineEvent[]; setTimeline: (events: TimelineEvent[]) => void;
   doctorReviews: DoctorReview[]; reviewField: (review: DoctorReview) => void;
   ayushHistory: AyushHistory; setAyushHistory: (h: AyushHistory) => void;
+  timestamps: WorkflowTimestamps; updateTimestamps: (patch: Partial<WorkflowTimestamps>) => void;
   resetSession: () => void;
 }
 const EMPTY_BACKGROUND: BackgroundHistory = { pastMedical:'', pastSurgical:'', medications:'', allergies:'', family:'', personal:'', reviewOfSystems:'' };
-const EMPTY = { patientProfile:null, consentGranted:false, chiefComplaint:null, historyAnswers:null, evidence:[], safetyFlags:[], documents:[], backgroundHistory:EMPTY_BACKGROUND, timeline:[], doctorReviews:[], ayushHistory:{} };
+const EMPTY = { patientProfile:null, consentGranted:false, chiefComplaint:null, historyAnswers:null, evidence:[], safetyFlags:[], documents:[], backgroundHistory:EMPTY_BACKGROUND, timeline:[], doctorReviews:[], ayushHistory:{}, timestamps:{} };
 const STORAGE_KEY='medikiosk_session_v2';
 function load() { try { const raw=localStorage.getItem(STORAGE_KEY); return raw ? {...EMPTY,...JSON.parse(raw)} : EMPTY; } catch { return EMPTY; } }
 export function PatientSessionProvider({children}:{children:ReactNode}){
@@ -54,9 +57,10 @@ export function PatientSessionProvider({children}:{children:ReactNode}){
  const [timeline,setTimelineState]=useState<TimelineEvent[]>(initial.timeline);
  const [doctorReviews,setDoctorReviews]=useState<DoctorReview[]>(initial.doctorReviews ?? []);
  const [ayushHistory,setAyushHistoryState]=useState<AyushHistory>(initial.ayushHistory ?? {});
- useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify({patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory})); } catch {} },[patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory]);
+ const [timestamps,setTimestampsState]=useState<WorkflowTimestamps>(initial.timestamps ?? {});
+ useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify({patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory,timestamps})); } catch {} },[patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory,timestamps]);
  const value=useMemo<PatientSessionValue>(()=>({
-  patientProfile,setPatientProfile,consentGranted,setConsentGranted,chiefComplaint,setChiefComplaint:setChiefComplaintState,clearChiefComplaint:()=>setChiefComplaintState(null),historyAnswers,setHistoryAnswers:setHistoryAnswersState,clearHistoryAnswers:()=>setHistoryAnswersState(null),evidence,setEvidence:setEvidenceState,safetyFlags,setSafetyFlags:setSafetyFlagsState,documents,addDocument:d=>setDocuments(p=>[...p.filter(x=>x.id!==d.id),d]),removeDocument:id=>setDocuments(p=>p.filter(d=>d.id!==id)),clearDocuments:()=>setDocuments([]),backgroundHistory,setBackgroundHistory,timeline,setTimeline:setTimelineState,doctorReviews,reviewField:r=>setDoctorReviews(p=>[...p.filter(x=>x.field!==r.field),r]),ayushHistory,setAyushHistory:setAyushHistoryState,resetSession:()=>{setPatientProfile(null);setConsentGranted(false);setChiefComplaintState(null);setHistoryAnswersState(null);setEvidenceState([]);setSafetyFlagsState([]);setDocuments([]);setBackgroundHistory(EMPTY_BACKGROUND);setTimelineState([]);setDoctorReviews([]);setAyushHistoryState({});try{localStorage.removeItem(STORAGE_KEY);sessionStorage.removeItem("sehatSaathi_adaptive_analysis")}catch{}}}),[patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory]);
+  patientProfile,setPatientProfile,consentGranted,setConsentGranted,chiefComplaint,setChiefComplaint:setChiefComplaintState,clearChiefComplaint:()=>setChiefComplaintState(null),historyAnswers,setHistoryAnswers:setHistoryAnswersState,clearHistoryAnswers:()=>setHistoryAnswersState(null),evidence,setEvidence:setEvidenceState,safetyFlags,setSafetyFlags:setSafetyFlagsState,documents,addDocument:d=>setDocuments(p=>[...p.filter(x=>x.id!==d.id),d]),removeDocument:id=>setDocuments(p=>p.filter(d=>d.id!==id)),clearDocuments:()=>setDocuments([]),backgroundHistory,setBackgroundHistory,timeline,setTimeline:setTimelineState,doctorReviews,reviewField:r=>setDoctorReviews(p=>[...p.filter(x=>x.field!==r.field),r]),ayushHistory,setAyushHistory:setAyushHistoryState,timestamps,updateTimestamps:(patch:Partial<WorkflowTimestamps>)=>setTimestampsState(prev=>({...prev,...patch})),resetSession:()=>{setPatientProfile(null);setConsentGranted(false);setChiefComplaintState(null);setHistoryAnswersState(null);setEvidenceState([]);setSafetyFlagsState([]);setDocuments([]);setBackgroundHistory(EMPTY_BACKGROUND);setTimelineState([]);setDoctorReviews([]);setAyushHistoryState({});setTimestampsState({});try{localStorage.removeItem(STORAGE_KEY);sessionStorage.removeItem("sehatSaathi_adaptive_analysis")}catch{}}}),[patientProfile,consentGranted,chiefComplaint,historyAnswers,evidence,safetyFlags,documents,backgroundHistory,timeline,doctorReviews,ayushHistory,timestamps]);
  return <PatientSessionContext.Provider value={value}>{children}</PatientSessionContext.Provider>;
 }
 const PatientSessionContext=createContext<PatientSessionValue|null>(null);

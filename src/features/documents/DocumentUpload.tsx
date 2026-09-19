@@ -16,13 +16,14 @@ async function warmBackend(): Promise<void> {
 }
 
 export default function DocumentUpload() {
-  const { documents, addDocument, removeDocument } = usePatientSession();
+  const { documents, addDocument, removeDocument, updateTimestamps } = usePatientSession();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   const process = async (file: File) => {
     setBusy(true);
     setMessage(`Reading ${file.name}…`);
+    updateTimestamps({ documentProcessingStartedAt: new Date().toISOString() });
 
     // Fire the warm-up ping concurrently so it has as much lead time as
     // possible before the actual OCR request is sent.
@@ -132,6 +133,7 @@ export default function DocumentUpload() {
         sourceDocument: r.sourceDocument ?? null,
       } as any);
 
+      updateTimestamps({ documentProcessingCompletedAt: new Date().toISOString() });
       setMessage(`${file.name} processed successfully.`);
     } catch (error) {
       // Fix 3: surface a clear timeout/abort message so the user knows to

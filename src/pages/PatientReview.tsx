@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/AppHeader';
 import ContextualHelp from '../components/ContextualHelp';
@@ -7,6 +7,7 @@ import { usePatientSession } from '../features/patient/state/PatientSessionConte
 import { buildTimeline, labelField, valueText } from '../features/history/recordUtils';
 import { savePatientRecord, type StoredPatientRecord } from '../features/doctor/patientRecords';
 import { determineSuggestedRouting } from '../features/routing/routingService';
+import { calculateWorkflowDurations } from '../features/timing/timingUtils';
 
 const backgroundLabels: Record<string, string> = {
   pastMedical: 'Past Medical History',
@@ -26,6 +27,12 @@ export default function PatientReview() {
   const answers = s.historyAnswers ?? {};
   const all = useMemo(() => Object.entries(answers), [answers]);
 
+  useEffect(() => {
+    if (!s.timestamps.patientReviewStartedAt) {
+      s.updateTimestamps({ patientReviewStartedAt: new Date().toISOString() });
+    }
+  }, [s.timestamps.patientReviewStartedAt, s.updateTimestamps]);
+
   const updateBg = (key: string, value: string) =>
     s.setBackgroundHistory({ ...s.backgroundHistory, [key as keyof typeof s.backgroundHistory]: value });
 
@@ -43,9 +50,21 @@ export default function PatientReview() {
         originalInput: s.chiefComplaint.originalInput,
         safetyFlags: s.safetyFlags,
       });
+
+      const now = new Date().toISOString();
+      const updatedTimestamps = {
+        ...s.timestamps,
+        intakeStartedAt: s.timestamps.intakeStartedAt || now,
+        intakeCompletedAt: now,
+        patientReviewStartedAt: s.timestamps.patientReviewStartedAt || now,
+        patientReviewCompletedAt: now,
+      };
+      const durations = calculateWorkflowDurations(updatedTimestamps);
+      s.updateTimestamps(updatedTimestamps);
+
       const record: StoredPatientRecord = {
         id: s.patientProfile.identifier || `REC-${Date.now()}`,
-        submittedAt: new Date().toISOString(),
+        submittedAt: now,
         patientProfile: s.patientProfile,
         chiefComplaint: s.chiefComplaint,
         historyAnswers: answers,
@@ -58,6 +77,8 @@ export default function PatientReview() {
         ayushHistory: s.ayushHistory,
         reviewStatus: 'pending',
         suggestedRouting,
+        timestamps: updatedTimestamps,
+        durations,
       };
       savePatientRecord(record);
     }

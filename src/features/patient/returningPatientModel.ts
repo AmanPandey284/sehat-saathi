@@ -39,6 +39,8 @@ export interface LongitudinalChanges {
     editedValue?: string;
   }>;
   newDocumentsCount: number;
+  timestamps?: import("../timing/timingTypes").WorkflowTimestamps;
+  durations?: import("../timing/timingTypes").WorkflowDurations;
 }
 
 export interface ReturningPatientSession {

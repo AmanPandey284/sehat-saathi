@@ -10,6 +10,7 @@ import {
 } from "../features/patient/returningPatientModel";
 import { savePatientRecord, type StoredPatientRecord } from "../features/doctor/patientRecords";
 import { determineSuggestedRouting } from "../features/routing/routingService";
+import { calculateWorkflowDurations } from "../features/timing/timingUtils";
 
 export default function ReturningPatientOptions() {
   const nav = useNavigate();
@@ -111,6 +112,24 @@ export default function ReturningPatientOptions() {
       reviewStatus: "pending",
       longitudinalChanges: changes,
       suggestedRouting,
+      timestamps: (() => {
+        const retTimestamps = {
+          ...(previousRecord.timestamps || {}),
+          ...(session.timestamps || {}),
+          ...(changes.timestamps || {}),
+          intakeCompletedAt: nowIso,
+        };
+        return retTimestamps;
+      })(),
+      durations: (() => {
+        const retTimestamps = {
+          ...(previousRecord.timestamps || {}),
+          ...(session.timestamps || {}),
+          ...(changes.timestamps || {}),
+          intakeCompletedAt: nowIso,
+        };
+        return calculateWorkflowDurations(retTimestamps);
+      })(),
     };
 
     savePatientRecord(updatedRecord);

@@ -28,6 +28,8 @@ export interface StoredPatientRecord {
   reviewStatus: "pending" | "reviewed";
   longitudinalChanges?: import("../patient/returningPatientModel").LongitudinalChanges;
   suggestedRouting?: SuggestedRouting;
+  timestamps?: import("../timing/timingTypes").WorkflowTimestamps;
+  durations?: import("../timing/timingTypes").WorkflowDurations;
 }
 
 const STORAGE_KEY = "sehatSaathi_patient_records_v1";

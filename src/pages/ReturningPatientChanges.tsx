@@ -14,6 +14,7 @@ import {
   type ReturningPatientSession,
 } from "../features/patient/returningPatientModel";
 import { detectUrgentComplaintText } from "../features/safety/safetyEngine";
+import { calculateWorkflowDurations } from "../features/timing/timingUtils";
 
 export default function ReturningPatientChanges() {
   const nav = useNavigate();
@@ -43,6 +44,9 @@ export default function ReturningPatientChanges() {
       return;
     }
     setSessionData(s);
+
+    const startIso = s.changes.timestamps?.whatChangedStartedAt || new Date().toISOString();
+    session.updateTimestamps({ whatChangedStartedAt: startIso });
 
     // Initialize conditions
     const conds = getKnownConditions(s.previousRecord);
@@ -128,6 +132,16 @@ export default function ReturningPatientChanges() {
         status: st === "stopped" ? ("stopped" as const) : ("changed" as const),
       }));
 
+    const nowIso = new Date().toISOString();
+    const retTimestamps = {
+      ...(sessionData.changes.timestamps || {}),
+      ...(session.timestamps || {}),
+      whatChangedStartedAt: session.timestamps.whatChangedStartedAt || sessionData.changes.timestamps?.whatChangedStartedAt || nowIso,
+      whatChangedCompletedAt: nowIso,
+    };
+    const retDurations = calculateWorkflowDurations(retTimestamps);
+    session.updateTimestamps(retTimestamps);
+
     const updatedSession: ReturningPatientSession = {
       ...sessionData,
       changes: {
@@ -143,6 +157,8 @@ export default function ReturningPatientChanges() {
         hospitalizationDetails: recentHospitalization ? hospitalizationNote : undefined,
         naturalLanguageUpdate: naturalNote.trim() || undefined,
         structuredChanges: parsedItems.length > 0 ? parsedItems : undefined,
+        timestamps: retTimestamps,
+        durations: retDurations,
       },
     };
 

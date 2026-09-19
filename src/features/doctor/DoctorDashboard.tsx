@@ -15,6 +15,7 @@ import {
 } from './patientRecords';
 import { AVAILABLE_HOSPITAL_DEPARTMENTS } from '../routing/routingRules';
 import type { HospitalDepartment, SuggestedRouting } from '../routing/routingTypes';
+import { calculateWorkflowDurations } from '../timing/timingUtils';
 
 function downloadJson(data: unknown, filename: string) {
   const blob = new Blob(
@@ -67,6 +68,22 @@ export default function DoctorDashboard() {
   const activeRecord = useMemo(() => {
     return records.find(r => r.id === selectedRecordId) || null;
   }, [records, selectedRecordId]);
+
+  // Track physician review start for the active record if not already recorded
+  useEffect(() => {
+    if (activeRecord && !activeRecord.timestamps?.physicianReviewStartedAt) {
+      const now = new Date().toISOString();
+      const updatedTimestamps = {
+        ...(activeRecord.timestamps || {}),
+        physicianReviewStartedAt: now,
+      };
+      updatePatientRecord(activeRecord.id, {
+        timestamps: updatedTimestamps,
+        durations: calculateWorkflowDurations(updatedTimestamps),
+      });
+      setRecords(getStoredPatientRecords());
+    }
+  }, [activeRecord?.id]);
 
   const [tab, setTab] = useState<
     'summary' | 'conversation' | 'documents' | 'timeline'
@@ -203,7 +220,18 @@ export default function DoctorDashboard() {
 
   const toggleRecordStatus = (newStatus: 'pending' | 'reviewed') => {
     if (activeRecord) {
-      updatePatientRecord(activeRecord.id, { reviewStatus: newStatus });
+      const now = new Date().toISOString();
+      const updatedTimestamps = {
+        ...(activeRecord.timestamps || {}),
+        physicianReviewStartedAt: activeRecord.timestamps?.physicianReviewStartedAt || now,
+        physicianReviewCompletedAt: newStatus === 'reviewed' ? now : undefined,
+      };
+      const updatedDurations = calculateWorkflowDurations(updatedTimestamps);
+      updatePatientRecord(activeRecord.id, {
+        reviewStatus: newStatus,
+        timestamps: updatedTimestamps,
+        durations: updatedDurations,
+      });
       setRecords(getStoredPatientRecords());
     }
   };

@@ -7,11 +7,14 @@ import { usePatientSession } from '../features/patient/state/PatientSessionConte
 export default function PatientProfile() {
   const nav = useNavigate();
   const { language } = useLanguage();
-  const { setPatientProfile, consentGranted } = usePatientSession();
+  const { setPatientProfile, consentGranted, timestamps, updateTimestamps } = usePatientSession();
 
   useEffect(() => {
     if (!consentGranted) nav('/patient/consent', { replace: true });
-  }, [consentGranted, nav]);
+    else if (!timestamps.intakeStartedAt) {
+      updateTimestamps({ intakeStartedAt: new Date().toISOString() });
+    }
+  }, [consentGranted, nav, timestamps.intakeStartedAt, updateTimestamps]);
 
   const [name, setName] = useState('');
   const [age, setAge] = useState('');

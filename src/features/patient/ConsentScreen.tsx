@@ -6,10 +6,13 @@ import { usePatientSession } from './state/PatientSessionContext';
 export default function ConsentScreen() {
   const { t, language } = useLanguage();
   const nav = useNavigate();
-  const { setConsentGranted } = usePatientSession();
+  const { setConsentGranted, timestamps, updateTimestamps } = usePatientSession();
 
   const agree = () => {
     setConsentGranted(true);
+    if (!timestamps.intakeStartedAt) {
+      updateTimestamps({ intakeStartedAt: new Date().toISOString() });
+    }
     nav('/patient/profile');
   };
 
