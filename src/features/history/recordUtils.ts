@@ -18,7 +18,9 @@ export function labelField(field: string): string {
 
 export function valueText(v: AnswerValue | undefined | null): string {
   if (Array.isArray(v)) return v.join(', ');
-  if (v === null || v === undefined) return 'Not reported';
+  if (v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) {
+    return 'Not reported';
+  }
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (typeof v === 'string') {
     const lower = v.trim().toLowerCase();

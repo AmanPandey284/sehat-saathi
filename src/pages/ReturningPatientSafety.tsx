@@ -118,8 +118,8 @@ export default function ReturningPatientSafety() {
       }
     }
 
-    // 2. Build answers map and evaluate deterministically via existing evaluateSafety
-    const answers: Record<string, string | boolean | number> = {
+    // 2. Build temporary evaluation payload for evaluateSafety() ONLY
+    const evalPayload: Record<string, string | boolean | number> = {
       breathingDifficulty: selectedFlags.breathingDifficulty ? "yes" : "no",
       chestPain: selectedFlags.chestPain ? "yes" : "no",
       bloodInCough: selectedFlags.bloodInCough ? "yes" : "no",
@@ -129,7 +129,7 @@ export default function ReturningPatientSafety() {
       severity: selectedFlags.severePain ? 9 : 2,
     };
 
-    const triggeredFlags = evaluateSafety(answers);
+    const triggeredFlags = evaluateSafety(evalPayload);
     const urgentFlag = triggeredFlags.find((f) => f.severity === "urgent");
 
     if (urgentFlag) {
@@ -139,12 +139,22 @@ export default function ReturningPatientSafety() {
       return;
     }
 
-    // 3. Passed safety screening — record safety clearance into session
-    session.setHistoryAnswers({
-      ...(session.historyAnswers || {}),
+    // 3. Passed safety screening — record safety clearance and ONLY explicitly selected symptoms.
+    // Do NOT persist synthetic keepingFluidsDown, severity: 2, or unselected items as "no".
+    const confirmedSafetyAnswers: Record<string, string | boolean | number> = {
       safety_screened: true,
       safety_screened_at: new Date().toISOString(),
-      ...answers,
+    };
+    if (selectedFlags.breathingDifficulty) confirmedSafetyAnswers.breathingDifficulty = "yes";
+    if (selectedFlags.chestPain) confirmedSafetyAnswers.chestPain = "yes";
+    if (selectedFlags.bloodInCough) confirmedSafetyAnswers.bloodInCough = "yes";
+    if (selectedFlags.bloodInStool) confirmedSafetyAnswers.bloodInStool = "yes";
+    if (selectedFlags.vomiting) confirmedSafetyAnswers.vomiting = "yes";
+    if (selectedFlags.severePain) confirmedSafetyAnswers.severePain = "yes";
+
+    session.setHistoryAnswers({
+      ...(session.historyAnswers || {}),
+      ...confirmedSafetyAnswers,
     });
 
     // Ensure session has today's visit context / chief complaint set
@@ -186,20 +196,11 @@ export default function ReturningPatientSafety() {
       }
     }
 
-    const answers: Record<string, string | number> = {
-      breathingDifficulty: "no",
-      chestPain: "no",
-      bloodInCough: "no",
-      bloodInStool: "no",
-      vomiting: "no",
-      severity: 2,
-    };
-
+    // Record safety clearance without injecting synthetic keepingFluidsDown: "yes", severity: 2, or false "no" answers.
     session.setHistoryAnswers({
       ...(session.historyAnswers || {}),
       safety_screened: true,
       safety_screened_at: new Date().toISOString(),
-      ...answers,
     });
 
     session.setChiefComplaint({

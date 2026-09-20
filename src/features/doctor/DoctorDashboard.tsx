@@ -136,7 +136,8 @@ export default function DoctorDashboard() {
       backgroundHistory,
       patientProfile,
       safetyFlags,
-      doctorReviews
+      doctorReviews,
+      activeRecord?.longitudinalChanges
     );
 
   const evidenceFor = (field: string) =>
@@ -167,7 +168,8 @@ export default function DoctorDashboard() {
           backgroundHistory,
           patientProfile,
           safetyFlags,
-          doctorReviews
+          doctorReviews,
+          activeRecord?.longitudinalChanges
         )
       );
 

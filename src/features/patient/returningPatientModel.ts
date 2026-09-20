@@ -2,6 +2,7 @@ import type {
   StoredPatientRecord,
 } from "../doctor/patientRecords";
 import { getStoredPatientRecords } from "../doctor/patientRecords";
+import type { SafetyFlag } from "./state/PatientSessionContext";
 
 export type VisitReason =
   | "follow_up"
@@ -39,6 +40,7 @@ export interface LongitudinalChanges {
     editedValue?: string;
   }>;
   newDocumentsCount: number;
+  previousSafetyFlags?: SafetyFlag[];
   timestamps?: import("../timing/timingTypes").WorkflowTimestamps;
   durations?: import("../timing/timingTypes").WorkflowDurations;
 }

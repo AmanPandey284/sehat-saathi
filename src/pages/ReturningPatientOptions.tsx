@@ -66,20 +66,20 @@ export default function ReturningPatientOptions() {
       source: "patient" as const,
     };
 
-    const combinedSafetyFlags = [
-      ...(previousRecord.safetyFlags || []),
-      ...session.safetyFlags,
-    ];
-
-    // FIX 1: Routing for today evaluates ONLY the current visit's safety status (session.safetyFlags).
-    // Historical safety flags are preserved in combinedSafetyFlags for record continuity,
-    // but must not cause today's safe follow-up encounter to falsely route to Emergency.
+    // Routing and active safety flags for today evaluate ONLY the current visit's safety status (session.safetyFlags).
+    // Historical safety flags are preserved in longitudinalChanges.previousSafetyFlags and timeline for continuity,
+    // and must never trigger an active URGENT review state for a safe returning visit.
     const suggestedRouting = determineSuggestedRouting({
       complaintId: effectiveComplaint.complaintId,
       displayName: effectiveComplaint.displayName,
       originalInput: effectiveComplaint.originalInput,
       safetyFlags: session.safetyFlags,
     });
+
+    const updatedChanges = {
+      ...changes,
+      previousSafetyFlags: previousRecord.safetyFlags || [],
+    };
 
     // Build the updated stored patient record
     const updatedRecord: StoredPatientRecord = {
@@ -89,13 +89,12 @@ export default function ReturningPatientOptions() {
       patientProfile: previousRecord.patientProfile,
       chiefComplaint: effectiveComplaint,
       historyAnswers: {
-        ...previousRecord.historyAnswers,
         ...(session.historyAnswers || {}),
         returning_visit_reason: changes.visitReason,
         returning_followup_status: changes.followUpStatus || "not_applicable",
       },
       evidence: [...(previousRecord.evidence || []), ...session.evidence],
-      safetyFlags: combinedSafetyFlags,
+      safetyFlags: session.safetyFlags || [],
       documents: session.documents.length > 0 ? session.documents : previousRecord.documents,
       backgroundHistory: {
         ...previousRecord.backgroundHistory,
@@ -110,7 +109,7 @@ export default function ReturningPatientOptions() {
       doctorReviews: previousRecord.doctorReviews || [],
       ayushHistory: previousRecord.ayushHistory || {},
       reviewStatus: "pending",
-      longitudinalChanges: changes,
+      longitudinalChanges: updatedChanges,
       suggestedRouting,
       timestamps: (() => {
         const retTimestamps = {

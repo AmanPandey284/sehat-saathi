@@ -9,7 +9,8 @@ export function generateClinicalSummary(
   background?: BackgroundHistory,
   profile?: PatientProfile | null,
   flags: SafetyFlag[] = [],
-  reviews: DoctorReview[] = []
+  reviews: DoctorReview[] = [],
+  longitudinalChanges?: import('../patient/returningPatientModel').LongitudinalChanges
 ): string {
   const out: string[] = [];
   out.push('PHYSICIAN-READY CLINICAL INTAKE');
@@ -18,9 +19,11 @@ export function generateClinicalSummary(
   out.push(`Chief complaint: ${complaint?.displayName ?? 'Not reported'}`);
   if (complaint?.originalInput) out.push(`Patient wording: ${complaint.originalInput}`);
   out.push('', 'History of present illness:');
-  if (answers && Object.keys(answers).length) {
-    for (const [field, v] of Object.entries(answers)) {
-      if (field.startsWith('returning_')) continue;
+  const clinicalEntries = answers
+    ? Object.entries(answers).filter(([field]) => !field.startsWith('returning_') && !field.startsWith('safety_screened'))
+    : [];
+  if (clinicalEntries.length) {
+    for (const [field, v] of clinicalEntries) {
       const r = reviews.find((x) => x.field === field);
       out.push(`• ${labelField(field)}: ${r?.status === 'edited' ? r.editedValue : valueText(v)} [source: patient; ${r?.status ?? 'unverified'}]`);
     }
@@ -47,6 +50,9 @@ export function generateClinicalSummary(
     out.push(`• Visit category: ${String(answers.returning_visit_reason)}`);
     if (answers.returning_followup_status && answers.returning_followup_status !== 'not_applicable') {
       out.push(`• Follow-up status: ${String(answers.returning_followup_status)}`);
+    }
+    if (longitudinalChanges?.previousSafetyFlags && longitudinalChanges.previousSafetyFlags.length > 0) {
+      out.push(`• Prior consultation safety alert (historical): ${longitudinalChanges.previousSafetyFlags.map(f => `${f.title} [${f.severity.toUpperCase()}]`).join(', ')}`);
     }
   }
   if (flags.length) {
