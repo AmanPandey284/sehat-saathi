@@ -142,7 +142,7 @@ export default function PatientDocuments() {
                 to="/patient/ayush"
                 className="rounded-full border border-clinic-200 px-5 py-3 text-sm font-medium text-clinic-700 hover:bg-clinic-50 transition"
               >
-                🌿 AYUSH History
+                🌿 AYUSH Mode (Ayurveda)
               </Link>
               <button
                 onClick={review}

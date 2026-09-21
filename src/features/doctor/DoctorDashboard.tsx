@@ -86,7 +86,7 @@ export default function DoctorDashboard() {
   }, [activeRecord?.id]);
 
   const [tab, setTab] = useState<
-    'summary' | 'conversation' | 'documents' | 'timeline'
+    'summary' | 'conversation' | 'documents' | 'timeline' | 'ayush'
   >('summary');
 
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -104,6 +104,123 @@ export default function DoctorDashboard() {
   const doctorReviews = activeRecord ? activeRecord.doctorReviews : s.doctorReviews;
   const evidence = activeRecord ? activeRecord.evidence : s.evidence;
   const reviewStatus = activeRecord?.reviewStatus || 'pending';
+  const ayushHistory = activeRecord ? (activeRecord.ayushHistory ?? {}) : (s.ayushHistory ?? {});
+
+  const ayushLabels: Record<string, string> = {
+    prakriti: 'Prakriti',
+    vikriti: 'Vikriti',
+    sara: 'Sara',
+    samhanana: 'Samhanana',
+    pramana: 'Pramana',
+    satmya: 'Satmya',
+    sattva: 'Sattva',
+    ahara_shakti: 'Ahara Shakti',
+    vyayama_shakti: 'Vyayama Shakti',
+    vaya: 'Vaya',
+    nadi: 'Nadi',
+    mala: 'Mala',
+    mutra: 'Mutra',
+    jihva: 'Jihva',
+    shabda: 'Shabda',
+    sparsha: 'Sparsha',
+    drik: 'Drik',
+    akriti: 'Akriti',
+    agni: 'Agni',
+    koshtha: 'Koshtha',
+    meal_pattern: 'Meal Pattern',
+    food_habits: 'Food Habits',
+    water_intake: 'Water Intake',
+    sleep: 'Sleep',
+    exercise: 'Exercise / Activity',
+    daily_routine: 'Daily Routine',
+    nidana: 'Nidana',
+    purvarupa: 'Purvarupa',
+    rupa: 'Rupa',
+    upashaya: 'Upashaya',
+    anupashaya: 'Anupashaya',
+    dosha_history: 'Dosha-related History',
+    dushya_history: 'Dushya-related History',
+    srotas_history: 'Srotas-related History',
+    udbhava_sthana: 'Udbhava Sthana',
+    roga_marga: 'Rogamarga',
+  };
+
+  const getAyushValue = (field: string) => {
+    return ayushHistory[field] || ayushHistory[field.toLowerCase()] || ayushHistory[ayushLabels[field]] || '';
+  };
+
+  const ayushSections = useMemo(() => {
+    const sectionMap: Record<string, string[]> = {
+      'Dashavidha Pariksha': [
+        'prakriti',
+        'vikriti',
+        'sara',
+        'samhanana',
+        'pramana',
+        'satmya',
+        'sattva',
+        'ahara_shakti',
+        'vyayama_shakti',
+        'vaya',
+      ],
+      'Ashtavidha Pariksha': [
+        'nadi',
+        'mala',
+        'mutra',
+        'jihva',
+        'shabda',
+        'sparsha',
+        'drik',
+        'akriti',
+      ],
+      'Agni & Koshtha': ['agni', 'koshtha'],
+      'Ahara–Vihara': [
+        'meal_pattern',
+        'food_habits',
+        'water_intake',
+        'sleep',
+        'exercise',
+        'daily_routine',
+      ],
+      'Nidana Panchaka': [
+        'nidana',
+        'purvarupa',
+        'rupa',
+        'upashaya',
+        'anupashaya',
+      ],
+      Samprapti: [
+        'dosha_history',
+        'dushya_history',
+        'srotas_history',
+        'udbhava_sthana',
+        'roga_marga',
+      ],
+    };
+
+    const standardKeys = new Set(Object.values(sectionMap).flat());
+    const extraKeys = Object.keys(ayushHistory).filter(
+      k => !standardKeys.has(k) && !standardKeys.has(k.toLowerCase()) && Boolean(ayushHistory[k])
+    );
+
+    const groups = Object.entries(sectionMap)
+      .map(([section, fields]) => ({
+        section,
+        fields: fields.filter(
+          field => Boolean(getAyushValue(field))
+        ),
+      }))
+      .filter(group => group.fields.length > 0);
+
+    if (extraKeys.length > 0) {
+      groups.push({
+        section: 'Additional Traditional History',
+        fields: extraKeys,
+      });
+    }
+
+    return groups;
+  }, [ayushHistory]);
 
   const conflicts = useMemo(
     () =>
@@ -631,7 +748,8 @@ export default function DoctorDashboard() {
                   'summary',
                   'conversation',
                   'documents',
-                  'timeline'
+                  'timeline',
+                  'ayush'
                 ] as const
               ).map(t => (
                 <button
@@ -643,7 +761,7 @@ export default function DoctorDashboard() {
                       : 'text-muted hover:bg-clinic-50'
                   }`}
                 >
-                  {t[0].toUpperCase() + t.slice(1)}
+                  {t === 'ayush' ? '🌿 AYUSH' : t[0].toUpperCase() + t.slice(1)}
                 </button>
               ))}
 
@@ -1071,6 +1189,33 @@ export default function DoctorDashboard() {
 
                   </div>
 
+                  {/* AYUSH CLINICAL SUMMARY CARD */}
+                  {Object.keys(ayushHistory).length > 0 && (
+                    <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-clinic-50 px-2.5 py-0.5 text-xs font-semibold text-clinic-700">
+                            <span>🌿</span> AYUSH Module · Ayurvedic Intake
+                          </span>
+                          <h2 className="mt-2 font-display text-xl font-semibold text-ink">
+                            Ayurvedic Clinical History Available
+                          </h2>
+                          <p className="mt-1 text-sm text-muted">
+                            Structured patient-reported traditional medicine intake ({Object.keys(ayushHistory).length} recorded items).
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setTab('ayush')}
+                          className="rounded-full bg-clinic-50 border border-clinic-300 px-5 py-2 text-sm font-semibold text-clinic-800 hover:bg-clinic-100 transition shadow-2xs"
+                        >
+                          View Ayurvedic History →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               </>
             )}
@@ -1198,6 +1343,71 @@ export default function DoctorDashboard() {
                   </div>
                 ))}
 
+              </div>
+            )}
+
+            {/* AYUSH TAB */}
+            {tab === 'ayush' && (
+              <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-clinic-600">
+                      <span>🌿</span>
+                      <span>AYUSH Mode · Ayurvedic Clinical History</span>
+                    </div>
+                    <h2 className="mt-1 font-display text-2xl font-semibold text-ink">
+                      Ayurvedic Clinical Intake Review
+                    </h2>
+                    <p className="mt-1 text-sm text-muted">
+                      Patient-reported Ayurvedic clinical history for practitioner reference. This is not an automated diagnosis.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-clinic-50 border border-clinic-200 px-3 py-1 text-xs font-medium text-clinic-800">
+                    Practitioner Reference Only
+                  </span>
+                </div>
+
+                {ayushSections.length === 0 ? (
+                  <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    No Ayurvedic clinical history has been recorded for this patient.
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-6">
+                    {ayushSections.map(group => (
+                      <section
+                        key={group.section}
+                        className="rounded-xl border border-clinic-100 p-5 bg-clinic-50/20"
+                      >
+                        <h3 className="text-base font-semibold text-ink border-b border-clinic-100 pb-2">
+                          {group.section}
+                        </h3>
+
+                        <div className="mt-3 divide-y divide-slate-100">
+                          {group.fields.map(field => (
+                            <div
+                              key={field}
+                              className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between"
+                            >
+                              <p className="font-medium text-ink text-sm">
+                                {ayushLabels[field] || field}
+                              </p>
+
+                              <p className="max-w-2xl text-sm font-medium text-clinic-800 sm:text-right">
+                                {getAyushValue(field)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-6 rounded-xl bg-canvas p-4 text-xs text-muted border border-clinic-100">
+                  <strong className="text-ink">Source:</strong> Patient-reported Ayurvedic clinical history ·
+                  Captured during intake · Designed for Ayurvedic OPD practitioner review · Does not constitute an autonomous diagnosis or prescription.
+                </div>
               </div>
             )}
 

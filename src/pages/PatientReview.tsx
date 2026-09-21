@@ -210,6 +210,48 @@ export default function PatientReview() {
             </div>
           </section>
 
+          {/* AYUSH CLINICAL HISTORY CARD */}
+          {Object.keys(s.ayushHistory).length > 0 && (
+            <section className="mt-6 rounded-3xl border border-clinic-100 bg-white/95 p-7 shadow-sm glass-card">
+              <div className="flex items-center justify-between border-b border-clinic-50 pb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🌿</span>
+                  <div>
+                    <h2 className="font-display text-xl font-semibold text-ink">
+                      {language === 'hi' ? 'आयुर्वेदिक क्लिनिकल इतिहास' : 'Ayurvedic Clinical History'}
+                    </h2>
+                    <p className="text-xs text-muted">
+                      {language === 'hi'
+                        ? 'दशविध / अष्टविध परीक्षा · रोगी द्वारा दर्ज पारंपरिक इतिहास'
+                        : 'Dasavidha / Ashtavidha Pariksha · Patient-reported traditional intake'}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  to="/patient/ayush"
+                  className="rounded-full border border-clinic-200 bg-clinic-50 px-3.5 py-1 text-xs font-semibold text-clinic-800 hover:bg-clinic-100 transition"
+                >
+                  {language === 'hi' ? 'संपादित करें' : 'Edit AYUSH'}
+                </Link>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {Object.entries(s.ayushHistory)
+                  .filter(([, v]) => v && v.trim() !== '')
+                  .map(([field, value]) => (
+                    <div key={field} className="rounded-xl border border-clinic-100 bg-clinic-50/40 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted capitalize">
+                        {field.replace(/_/g, ' ')}
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-clinic-800">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          )}
+
           {/* PREVIOUS DOCUMENTS */}
           {s.documents.length > 0 && (
             <section className="mt-6 rounded-3xl border border-clinic-100 bg-white/95 p-7 shadow-sm glass-card">
