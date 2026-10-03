@@ -61,6 +61,12 @@ export interface OCRDocumentResponse {
   } | null;
 }
 
+import {
+  ensurePatientOrGuestSession,
+  getPatientAuthorizationHeader,
+  getDoctorAuthorizationHeader,
+} from "./authStorage";
+
 // 120-second abort timeout. With English-only OCR and 1200px cap,
 // real photos complete in ~20–35 s on Render. 120 s gives a safe
 // buffer for cold starts without freezing the UI indefinitely.
@@ -68,10 +74,23 @@ const OCR_TIMEOUT_MS = 120_000;
 
 export async function ocrDocument(
   file: File,
+  consentExternalProcessing: boolean = false,
+  encounterId?: string,
 ): Promise<OCRDocumentResponse> {
-  const fd = new FormData();
+  // Ensure an authenticated session (guest or patient) exists before upload
+  await ensurePatientOrGuestSession(BASE_URL);
 
+  const fd = new FormData();
   fd.append("file", file);
+  fd.append("consent_external_processing", String(consentExternalProcessing));
+  if (encounterId) {
+    fd.append("encounter_id", encounterId);
+  }
+
+  const authHeaders = {
+    ...getPatientAuthorizationHeader(),
+    ...getDoctorAuthorizationHeader(),
+  };
 
   const controller = new AbortController();
   const timeoutId = setTimeout(
@@ -84,6 +103,7 @@ export async function ocrDocument(
       `${BASE_URL}/api/documents/ocr`,
       {
         method: "POST",
+        headers: authHeaders,
         body: fd,
         signal: controller.signal,
       },

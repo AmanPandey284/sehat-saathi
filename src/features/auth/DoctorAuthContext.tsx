@@ -45,11 +45,20 @@ const DoctorAuthContext = createContext<DoctorAuthContextValue | null>(null);
 
 function loadCachedAuth(): DoctorUser | null {
   try {
+    const token = getDoctorToken();
+    if (!token) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
     const raw = sessionStorage.getItem(AUTH_STORAGE_KEY) || localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    // Strict guard: patient tokens must never populate physician user state
-    if (parsed && (parsed.role === "doctor" || parsed.role === "admin" || parsed.role?.includes("Physician"))) {
+    if (
+      parsed &&
+      (parsed.role === "doctor" || parsed.role === "admin") &&
+      (parsed.role === "admin" || parsed.doctor_status === "approved")
+    ) {
       return parsed;
     }
     return null;
@@ -81,8 +90,9 @@ export function DoctorAuthProvider({ children }: { children: ReactNode }) {
 
         if (res.ok) {
           const data = await res.json();
-          // Strictly enforce doctor or admin role on returned user
-          if (data.role === "doctor" || data.role === "admin") {
+          // Strictly enforce approved doctor or admin role on returned user
+          const isApproved = data.role === "admin" || data.doctor_status === "approved";
+          if ((data.role === "doctor" || data.role === "admin") && isApproved) {
             const verifiedUser: DoctorUser = {
               id: data.id,
               username: data.email || data.id,
@@ -96,7 +106,7 @@ export function DoctorAuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(verifiedUser));
             sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(verifiedUser));
           } else {
-            // Patient token detected: invalidate from physician context immediately
+            // Patient token or unapproved account detected: invalidate from physician context immediately
             clearDoctorToken();
             setUser(null);
             setTokenState(null);
@@ -109,7 +119,12 @@ export function DoctorAuthProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch(() => {
-        // Network offline / Vitest environment: maintain cached state
+        // Network offline / validation failure: fail closed to prevent stale unverified bypass
+        if (active) {
+          clearDoctorToken();
+          setUser(null);
+          setTokenState(null);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -134,8 +149,17 @@ export function DoctorAuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         const role = data.user?.role;
+        const status = data.user?.status;
+
         if (role !== "doctor" && role !== "admin") {
           return { ok: false, error: "Access denied. Physician or Administrator account required." };
+        }
+
+        if (role === "doctor" && status !== "approved") {
+          return {
+            ok: false,
+            error: `Physician account is ${status || "pending approval"}. Please contact the hospital administrator.`,
+          };
         }
 
         const newUser: DoctorUser = {
@@ -158,25 +182,8 @@ export function DoctorAuthProvider({ children }: { children: ReactNode }) {
 
       const errData = await res.json().catch(() => ({}));
       return { ok: false, error: errData.detail || "Invalid physician credentials." };
-    } catch (networkErr) {
-      // Offline fallback for Vitest test runs where API server is not running
-      if (
-        (cleanUser.toLowerCase() === DEMO_DOCTOR_CREDENTIALS.username.toLowerCase() ||
-          cleanUser.toLowerCase() === "demo-doctor@sehat-saathi.com") &&
-        cleanPass === DEMO_DOCTOR_CREDENTIALS.password
-      ) {
-        const demoUser: DoctorUser = {
-          id: "demo-doctor",
-          username: DEMO_DOCTOR_CREDENTIALS.username,
-          displayName: DEMO_DOCTOR_CREDENTIALS.displayName,
-          role: "doctor",
-          authenticatedAt: new Date().toISOString(),
-        };
-        setUser(demoUser);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
-        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
-        return { ok: true };
-      }
+    } catch {
+      // Fail closed: never grant hardcoded unauthenticated sessions
       return { ok: false, error: "Unable to reach authentication server. Please check your connection." };
     }
   };

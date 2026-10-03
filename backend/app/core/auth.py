@@ -362,6 +362,7 @@ async def send_otp_challenge(
     clean_recipient = recipient.strip().lower()
     now = int(time.time())
 
+    existing_attempts = 0
     # Rate limiting & cooldown checked durably in database
     with transaction() as conn:
         # Check active challenge
@@ -385,6 +386,8 @@ async def send_otp_challenge(
                     "error": "Rate limit exceeded. Please wait for the current code to expire before requesting a new one.",
                     "delivery_mode": "rate_limited",
                 }
+            else:
+                existing_attempts = rec.get("attempts", 0)
 
     # Verification channel validation
     if channel != "email":
@@ -417,7 +420,7 @@ async def send_otp_challenge(
             (
                 clean_recipient,
                 stored_hash,
-                0,
+                existing_attempts,
                 now + settings.otp_expire_seconds,
                 now,
                 now + settings.otp_cooldown_seconds,

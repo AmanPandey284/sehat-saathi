@@ -371,12 +371,13 @@ def identify_test_key(
 def parse_typed_clinical_value(value: str) -> dict[str, Any]:
     """
     Parses a clinical reading string into a strictly typed structure:
-    - exact_numeric: precise float value
+    - exact_numeric: precise float value (supports scientific notation e.g. 1e3 = 1000)
     - inequality: operator (<, <=, >, >=) and numeric threshold
-    - range: interval [low, high]
+    - range: interval [low, high] (supports '15 to 45' and '15-45')
     - qualitative: string finding (positive, negative, etc.)
     - unreadable: contains garbled characters or letters mixed into digits (e.g. B4, 4B)
     - unknown: blank or empty
+    - preserves raw text immutably
     """
     if not value or not value.strip():
         return {"kind": "unknown", "raw": value}
@@ -385,14 +386,13 @@ def parse_typed_clinical_value(value: str) -> dict[str, Any]:
     clean = raw.replace(",", "").strip()
 
     # Detect unreadable character combinations like 'B4', '4B', '??', mixed letters and numbers in numeric token
-    # e.g., token starting or ending with digit and letter directly adjacent without unit space
     tokens = clean.split()
     first_token = tokens[0] if tokens else ""
 
     # Check for direct letter-digit juxtaposition (e.g. B4, 4B, 5O instead of 50)
     if re.search(r"\b[A-Za-z]+\d+\b|\b\d+[A-Za-z]+\b", first_token):
-        # Unless it's a known scientific notation like '10e3'
-        if not re.match(r"^\d+(?:\.\d+)?e[+-]?\d+$", first_token, re.IGNORECASE):
+        # Allow standard scientific notation like '1e3', '10e-3'
+        if not re.match(r"^-?\d+(?:\.\d+)?e[+-]?\d+$", first_token, re.IGNORECASE):
             return {
                 "kind": "unreadable",
                 "raw": raw,
@@ -400,7 +400,7 @@ def parse_typed_clinical_value(value: str) -> dict[str, Any]:
             }
 
     # Range format: e.g. "15-45", "15 - 45", "15 to 45"
-    m_range = re.match(r"^(-?\d+(?:\.\d+)?)\s*[-–—to]\s*(-?\d+(?:\.\d+)?)(.*)$", clean, re.IGNORECASE)
+    m_range = re.match(r"^(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?:[-–—]|\bto\b)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(.*)$", clean, re.IGNORECASE)
     if m_range:
         try:
             low = float(m_range.group(1))
@@ -417,7 +417,7 @@ def parse_typed_clinical_value(value: str) -> dict[str, Any]:
             pass
 
     # Inequality format: e.g. "<60", "<= 60", ">= 10", "> 100", "≤ 5", "≥ 10"
-    m_ineq = re.match(r"^([<>]=?|≤|≥)\s*(-?\d+(?:\.\d+)?)(.*)$", clean)
+    m_ineq = re.match(r"^([<>]=?|≤|≥)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(.*)$", clean)
     if m_ineq:
         op = m_ineq.group(1)
         if op == "≤":
@@ -437,8 +437,8 @@ def parse_typed_clinical_value(value: str) -> dict[str, Any]:
         except ValueError:
             pass
 
-    # Exact numeric format: e.g. "13.8", "11200 /µL", "-2.5"
-    m_exact = re.match(r"^(-?\d+(?:\.\d+)?)(.*)$", clean)
+    # Exact numeric format: e.g. "13.8", "11200 /µL", "1e3 mmol/L"
+    m_exact = re.match(r"^(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(.*)$", clean)
     if m_exact:
         try:
             val = float(m_exact.group(1))
@@ -471,7 +471,7 @@ def parse_reference_range(report_reference: str | None) -> dict[str, Any] | None
     clean = report_reference.replace(",", "").strip()
 
     # Inequality reference: e.g. "<10 mg/L", "< 10", "<= 5.6"
-    m_ineq = re.match(r"^([<>]=?|≤|≥)\s*(-?\d+(?:\.\d+)?)(.*)$", clean)
+    m_ineq = re.match(r"^([<>]=?|≤|≥)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(.*)$", clean)
     if m_ineq:
         op = m_ineq.group(1)
         if op == "≤":
@@ -491,8 +491,8 @@ def parse_reference_range(report_reference: str | None) -> dict[str, Any] | None
         except ValueError:
             pass
 
-    # Range reference: e.g. "13.0 - 17.0 g/dL", "4.0–11.0 ×10³/µL"
-    m_range = re.match(r"^(-?\d+(?:\.\d+)?)\s*[-–—to]\s*(-?\d+(?:\.\d+)?)(.*)$", clean, re.IGNORECASE)
+    # Range reference: e.g. "13.0 - 17.0 g/dL", "4.0–11.0 ×10³/µL", "15 to 45"
+    m_range = re.match(r"^(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?:[-–—]|\bto\b)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(.*)$", clean, re.IGNORECASE)
     if m_range:
         try:
             low = float(m_range.group(1))
@@ -522,45 +522,90 @@ def parse_bp(value: str) -> tuple[int, int] | None:
 # Unit Normalization & Compatibility Engine
 # ---------------------------------------------------------------------------
 
+MASS_VOLUME_FACTORS: dict[str, float] = {
+    # Base is mg/L
+    "mg/l": 1.0,
+    "g/l": 1000.0,
+    "mg/dl": 10.0,
+    "g/dl": 10000.0,
+    "ug/l": 0.001,
+    "mcg/l": 0.001,
+    "ug/dl": 0.01,
+    "mcg/dl": 0.01,
+}
+
+CELL_COUNT_FACTORS: dict[str, float] = {
+    # Base is /µL
+    "/ul": 1.0,
+    "/µl": 1.0,
+    "/cumm": 1.0,
+    "/mm3": 1.0,
+    "cells/ul": 1.0,
+    "cells/cumm": 1.0,
+    "cumm": 1.0,
+    "103/ul": 1000.0,
+    "10^3/ul": 1000.0,
+    "x103/ul": 1000.0,
+    "k/ul": 1000.0,
+    "thou/ul": 1000.0,
+    "106/ul": 1000000.0,
+    "m/ul": 1000000.0,
+    "lakh/ul": 100000.0,
+    "lakh/cumm": 100000.0,
+    "lakhs/cumm": 100000.0,
+}
+
 def normalize_unit_str(u: str | None) -> str:
     if not u:
         return ""
     s = u.lower().strip()
-    s = s.replace("³", "3").replace("²", "2")
+    s = s.replace("³", "3").replace("²", "2").replace("⁶", "6")
     s = s.replace(" ", "").replace("^", "").replace("*", "")
     s = s.replace("×", "x")
-    s = s.replace("x103", "103")
-    s = s.replace("µl", "ul").replace("micro", "u")
+    s = s.replace("x103", "103").replace("x106", "106")
+    s = s.replace("µl", "ul").replace("micro", "u").replace("µg", "ug")
     return s
 
 
-def adapt_cell_count_units(
+def convert_clinical_unit(
     val: float,
     patient_raw_unit: str | None,
-    target_unit: str,
-) -> tuple[float, str | None]:
-    """
-    Explicitly converts /µL to ×10³/µL (1 ×10³/µL = 1000 /µL) or vice-versa,
-    preserving conversion provenance without mutating raw text.
-    """
-    raw_u = normalize_unit_str(patient_raw_unit)
-    tgt_u = normalize_unit_str(target_unit)
+    target_unit: str | None,
+) -> tuple[float | None, str | None, bool]:
+    norm_p = normalize_unit_str(patient_raw_unit)
+    norm_t = normalize_unit_str(target_unit)
 
-    # Patient has /µL or /cumm or /mm3 or raw value > 1000 without unit, and target is ×10³/µL
-    if tgt_u in ("103/ul", "103/l", "k/ul", "thou/ul"):
-        if raw_u in ("/ul", "/cumm", "/mm3", "cells/ul", "cells/cumm", "cumm") or (not raw_u and val >= 1000):
-            converted = val / 1000.0
-            note = f"Converted {val:g} /µL to {converted:g} ×10³/µL for reference comparison (1 ×10³/µL = 1000 /µL)"
-            return converted, note
+    # Identical units or both empty
+    if norm_p == norm_t:
+        return val, None, True
 
-    # Patient has ×10³/µL and target is /µL
-    if tgt_u in ("/ul", "/cumm", "/mm3", "cells/ul"):
-        if raw_u in ("103/ul", "103/l", "k/ul", "thou/ul") or (not raw_u and val <= 100):
-            converted = val * 1000.0
-            note = f"Converted {val:g} ×10³/µL to {converted:g} /µL for reference comparison"
-            return converted, note
+    # If target has a unit and patient unit is completely missing
+    if norm_t and not norm_p:
+        # If target is unitless (ratio, %, pH), allow
+        if norm_t in ("%", "ratio", "ph", "score", "index"):
+            return val, None, True
+        return None, f"Patient value lacks required unit ('{target_unit}')", False
 
-    return val, None
+    # If target unit is empty, accept patient value directly
+    if not norm_t:
+        return val, None, True
+
+    # Mass / Volume conversions (e.g. g/L vs mg/L, g/dL vs mg/dL)
+    if norm_p in MASS_VOLUME_FACTORS and norm_t in MASS_VOLUME_FACTORS:
+        val_in_base = val * MASS_VOLUME_FACTORS[norm_p]
+        converted = val_in_base / MASS_VOLUME_FACTORS[norm_t]
+        note = f"Converted {val:g} {patient_raw_unit} to {converted:g} {target_unit}"
+        return converted, note, True
+
+    # Cell count conversions (e.g. /µL vs ×10³/µL)
+    if norm_p in CELL_COUNT_FACTORS and norm_t in CELL_COUNT_FACTORS:
+        val_in_base = val * CELL_COUNT_FACTORS[norm_p]
+        converted = val_in_base / CELL_COUNT_FACTORS[norm_t]
+        note = f"Converted {val:g} {patient_raw_unit} to {converted:g} {target_unit}"
+        return converted, note, True
+
+    # Incompatible unit dimensions (e.g. mg/dL vs U/L)
+    return None, f"Incompatible units '{patient_raw_unit}' and '{target_unit}'", False
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +692,7 @@ def compare_result(
             "reference_source": "document" if report_reference else ("configured_reference" if test_key else None),
         }
 
-    # Handle Range intervals (e.g. 15-45)
+    # Handle Range intervals (e.g. 15-45, 15 to 45)
     if kind == "range":
         return {
             "status": "needs_review",
@@ -703,110 +748,156 @@ def compare_result(
             "reference_source": "document" if report_reference else None,
         }
 
-    # 4. Cell Count Unit Adaptation (e.g. WBC 11200 /µL vs 4.0-11.0 ×10³/µL)
+    # 4. Unit Compatibility & Conversion Engine
     conversion_note: str | None = None
     patient_unit = parsed_patient.get("unit")
 
-    # If test is cell count, adapt units
-    if test_key in ("wbc", "platelets") or "103" in normalize_unit_str(target_unit):
+    if target_unit:
         if kind == "exact_numeric" and parsed_patient.get("exact_val") is not None:
-            adapted_val, conversion_note = adapt_cell_count_units(
-                parsed_patient["exact_val"],
-                patient_unit,
-                target_unit,
-            )
-            parsed_patient["exact_val"] = adapted_val
+            conv_val, note, ok = convert_clinical_unit(parsed_patient["exact_val"], patient_unit, target_unit)
+            if not ok:
+                return {
+                    "status": "needs_review",
+                    "attention": True,
+                    "comparison": f"{note}; clinician review required",
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                }
+            parsed_patient["exact_val"] = conv_val
+            conversion_note = note
         elif kind == "inequality" and parsed_patient.get("operand") is not None:
-            adapted_val, conversion_note = adapt_cell_count_units(
-                parsed_patient["operand"],
-                patient_unit,
-                target_unit,
-            )
-            parsed_patient["operand"] = adapted_val
+            conv_val, note, ok = convert_clinical_unit(parsed_patient["operand"], patient_unit, target_unit)
+            if not ok:
+                return {
+                    "status": "needs_review",
+                    "attention": True,
+                    "comparison": f"{note}; clinician review required",
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                }
+            parsed_patient["operand"] = conv_val
+            conversion_note = note
 
-    # 5. Evaluate Inequality Patient Readings (e.g. "<60" or ">100")
+    # 5. Evaluate Inequality Patient Readings (e.g. "<60" or "<= 10")
     if kind == "inequality":
         op = parsed_patient["operator"]
         operand = parsed_patient["operand"]
 
-        # If reference is upper-bound inequality: e.g. ref is "< 10"
+        # Reference is upper-bound inequality: e.g. ref is "< 10" or "<= 10"
         if ref_operator in ("<", "<=") and ref_threshold is not None:
-            if op in ("<", "<="):
-                if operand <= ref_threshold:
-                    # All allowed values [0, operand] are <= ref_threshold
+            if ref_operator == "<":
+                if op == "<" and operand <= ref_threshold:
                     return {
                         "status": "within_reference",
                         "attention": False,
-                        "comparison": f"Within normal reference threshold ({patient_value} vs {ref_display})",
+                        "comparison": f"Within normal reference threshold ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
                         "reference_range": ref_display,
                         "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
                     }
-                else:
-                    # e.g. patient <60 and ref <10. Allowed values are [0, 60), which includes BOTH normal [0, 10] and elevated [10, 60)
+                elif op == "<=" and operand < ref_threshold:
                     return {
-                        "status": "needs_review",
-                        "attention": True,
-                        "comparison": f"Inequality bound ({patient_value}) spans both normal and elevated ranges against reference ({ref_display}); clinician review required",
+                        "status": "within_reference",
+                        "attention": False,
+                        "comparison": f"Within normal reference threshold ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
                         "reference_range": ref_display,
                         "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
                     }
-            elif op in (">", ">="):
-                if operand >= ref_threshold:
+                elif op in (">", ">=") and operand >= ref_threshold:
                     return {
                         "status": "above_reference",
                         "attention": True,
-                        "comparison": f"Above reference threshold ({patient_value} vs {ref_display})",
+                        "comparison": f"Above reference threshold ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
                         "reference_range": ref_display,
                         "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
+                    }
+                else:
+                    return {
+                        "status": "needs_review",
+                        "attention": True,
+                        "comparison": f"Inequality bound ({patient_value}) spans normal and elevated ranges against reference ({ref_display}); clinician review required",
+                        "reference_range": ref_display,
+                        "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
+                    }
+            else:  # ref_operator == "<="
+                if op in ("<", "<=") and operand <= ref_threshold:
+                    return {
+                        "status": "within_reference",
+                        "attention": False,
+                        "comparison": f"Within normal reference threshold ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                        "reference_range": ref_display,
+                        "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
+                    }
+                elif op in (">", ">=") and operand > ref_threshold:
+                    return {
+                        "status": "above_reference",
+                        "attention": True,
+                        "comparison": f"Above reference threshold ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                        "reference_range": ref_display,
+                        "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
+                    }
+                else:
+                    return {
+                        "status": "needs_review",
+                        "attention": True,
+                        "comparison": f"Inequality bound ({patient_value}) spans normal and elevated ranges against reference ({ref_display}); clinician review required",
+                        "reference_range": ref_display,
+                        "reference_source": ref_source,
+                        "conversion_provenance": conversion_note,
                     }
 
-        # If reference is interval [ref_low, ref_high]
+        # Reference is interval [ref_low, ref_high]
         if ref_low is not None and ref_high is not None:
-            if op in ("<", "<="):
-                if operand <= ref_low:
-                    # All allowed values [0, operand] are <= ref_low
-                    return {
-                        "status": "below_reference",
-                        "attention": True,
-                        "comparison": f"Below reference range ({patient_value} vs {ref_display})",
-                        "reference_range": ref_display,
-                        "reference_source": ref_source,
-                    }
-                elif operand > ref_high:
-                    # Spans below, within, and above!
-                    return {
-                        "status": "needs_review",
-                        "attention": True,
-                        "comparison": f"Inequality upper bound ({patient_value}) spans entire reference range ({ref_display}); clinician review required",
-                        "reference_range": ref_display,
-                        "reference_source": ref_source,
-                    }
-                else:
-                    # Operand is between low and high: spans below and within
-                    return {
-                        "status": "needs_review",
-                        "attention": True,
-                        "comparison": f"Inequality bound ({patient_value}) spans normal and low ranges ({ref_display}); clinician review required",
-                        "reference_range": ref_display,
-                        "reference_source": ref_source,
-                    }
-            elif op in (">", ">="):
-                if operand >= ref_high:
-                    return {
-                        "status": "above_reference",
-                        "attention": True,
-                        "comparison": f"Above reference range ({patient_value} vs {ref_display})",
-                        "reference_range": ref_display,
-                        "reference_source": ref_source,
-                    }
-                else:
-                    return {
-                        "status": "needs_review",
-                        "attention": True,
-                        "comparison": f"Inequality lower bound ({patient_value}) spans reference range ({ref_display}); clinician review required",
-                        "reference_range": ref_display,
-                        "reference_source": ref_source,
-                    }
+            if op == "<" and operand <= ref_low:
+                return {
+                    "status": "below_reference",
+                    "attention": True,
+                    "comparison": f"Below reference range ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                    "conversion_provenance": conversion_note,
+                }
+            elif op == "<=" and operand < ref_low:
+                return {
+                    "status": "below_reference",
+                    "attention": True,
+                    "comparison": f"Below reference range ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                    "conversion_provenance": conversion_note,
+                }
+            elif op == ">" and operand >= ref_high:
+                return {
+                    "status": "above_reference",
+                    "attention": True,
+                    "comparison": f"Above reference range ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                    "conversion_provenance": conversion_note,
+                }
+            elif op == ">=" and operand > ref_high:
+                return {
+                    "status": "above_reference",
+                    "attention": True,
+                    "comparison": f"Above reference range ({patient_value} vs {ref_display})" + (f" ({conversion_note})" if conversion_note else ""),
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                    "conversion_provenance": conversion_note,
+                }
+            else:
+                return {
+                    "status": "needs_review",
+                    "attention": True,
+                    "comparison": f"Inequality bound ({patient_value}) overlaps valid reference range ({ref_display}); clinician review required",
+                    "reference_range": ref_display,
+                    "reference_source": ref_source,
+                    "conversion_provenance": conversion_note,
+                }
 
         return {
             "status": "needs_review",
@@ -822,7 +913,12 @@ def compare_result(
 
         # Check against reference inequality
         if ref_operator in ("<", "<=") and ref_threshold is not None:
-            if val <= ref_threshold:
+            if ref_operator == "<":
+                is_within = val < ref_threshold
+            else:
+                is_within = val <= ref_threshold
+
+            if is_within:
                 status = "within_reference"
                 attention = False
                 comparison = f"Within reference threshold ({val} vs {ref_display})"

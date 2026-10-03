@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useDoctorAuth } from "./DoctorAuthContext";
+import { getDoctorToken } from "../../services/authStorage";
 
 export default function ProtectedRoute({ children }: { children: JSX.Element }) {
   const { isAuthenticated, user, loading } = useDoctorAuth();
@@ -16,9 +17,13 @@ export default function ProtectedRoute({ children }: { children: JSX.Element }) 
     );
   }
 
-  const isPhysicianOrAdmin = user && (user.role === "doctor" || user.role === "admin");
+  const hasToken = !!getDoctorToken();
+  const isPhysicianOrAdmin =
+    user &&
+    (user.role === "doctor" || user.role === "admin") &&
+    (user.role === "admin" || user.doctor_status === "approved");
 
-  if (!isAuthenticated || !isPhysicianOrAdmin) {
+  if (!isAuthenticated || !hasToken || !isPhysicianOrAdmin) {
     return <Navigate to="/doctor/login" state={{ from: location }} replace />;
   }
 

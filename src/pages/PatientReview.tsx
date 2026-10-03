@@ -9,7 +9,7 @@ import { savePatientRecord, type StoredPatientRecord } from '../features/doctor/
 import { determineSuggestedRouting } from '../features/routing/routingService';
 import { calculateWorkflowDurations } from '../features/timing/timingUtils';
 import { BASE_URL } from '../services/api';
-import { getAuthorizationHeader, setGuestToken } from '../services/authStorage';
+import { ensurePatientOrGuestSession, getPatientAuthorizationHeader } from '../services/authStorage';
 
 const backgroundLabels: Record<string, string> = {
   pastMedical: 'Past Medical History',
@@ -84,22 +84,13 @@ export default function PatientReview() {
       };
       savePatientRecord(record);
 
-      // Ensure we have an active auth token (or issue guest session token)
-      let authHeaders = getAuthorizationHeader();
-      if (!authHeaders.Authorization) {
-        try {
-          const guestRes = await fetch(`${BASE_URL}/api/auth/guest-session`, { method: "POST" });
-          if (guestRes.ok) {
-            const guestData = await guestRes.json();
-            setGuestToken(guestData.token);
-            authHeaders = { Authorization: `Bearer ${guestData.token}` };
-          }
-        } catch {}
-      }
+      // Ensure we have an active patient or guest auth token
+      await ensurePatientOrGuestSession();
+      const authHeaders = getPatientAuthorizationHeader();
 
       // Persist to backend transactional database
       try {
-        await fetch(`${BASE_URL}/api/encounters`, {
+        const res = await fetch(`${BASE_URL}/api/encounters`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -119,9 +110,22 @@ export default function PatientReview() {
             documents: s.documents || [],
             vitals: [],
             lab_results: [],
+            evidence: s.evidence || [],
+            safety_flags: s.safetyFlags || [],
+            background_history: s.backgroundHistory || {},
+            client_intake_id: record.id,
             clinical_summary: s.chiefComplaint.originalInput || "",
           }),
         });
+
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData.ok && resData.encounter) {
+            record.id = resData.encounter.id;
+            (record as any).version = resData.encounter.version;
+            savePatientRecord(record);
+          }
+        }
       } catch (err) {
         console.warn("Could not sync encounter to backend; saved locally", err);
       }

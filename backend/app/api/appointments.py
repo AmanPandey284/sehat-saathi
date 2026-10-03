@@ -66,12 +66,58 @@ def book_appointment(
     req: BookAppointmentRequest,
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # 1. Validate date format and reject past dates
+    from datetime import date
+    try:
+        booking_date = date.fromisoformat(req.date)
+        if booking_date < date.today():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot book appointments for past dates ({req.date}).",
+            )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid date format. Expected YYYY-MM-DD.",
+        )
+
+    # 2. Validate time slot
+    allowed_slots = set(DEFAULT_TIME_SLOTS) | {"12:00 PM"}
+    if req.time_slot not in allowed_slots:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid time slot '{req.time_slot}'. Please choose an active clinic slot.",
+        )
+
+    # 3. Validate doctor in database or registered directory
+    with get_db() as conn:
+        doc_row = conn.execute(
+            "SELECT id FROM accounts WHERE id = ? AND role = 'doctor' AND status = 'approved';",
+            (req.doctor_id,),
+        ).fetchone()
+        if not doc_row and not req.doctor_id.startswith("doc-"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Physician '{req.doctor_id}' is not recognized or approved.",
+            )
+
     apt_id = f"apt-{uuid.uuid4().hex[:8]}"
     now = int(time.time())
     patient_id = user["sub"]
 
     try:
         with transaction() as conn:
+            # Check for existing active (CONFIRMED) booking in this slot
+            active = conn.execute(
+                "SELECT id FROM appointments WHERE doctor_id = ? AND date = ? AND time_slot = ? AND status = 'CONFIRMED';",
+                (req.doctor_id, req.date, req.time_slot),
+            ).fetchone()
+            if active:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"The time slot '{req.time_slot}' on {req.date} for {req.doctor_name} has already been booked. Please select an available slot.",
+                )
+
             conn.execute(
                 """
                 INSERT INTO appointments (
@@ -95,7 +141,7 @@ def book_appointment(
                 ),
             )
     except sqlite3.IntegrityError:
-        # Atomic double booking prevention via UNIQUE(doctor_id, date, time_slot)
+        # Atomic double booking prevention via active slot unique index
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"The time slot '{req.time_slot}' on {req.date} for {req.doctor_name} has already been booked. Please select an available slot.",
@@ -131,6 +177,7 @@ def list_appointments(
         return [dict(r) for r in rows]
 
 
+@router.delete("/{appointment_id}")
 @router.post("/{appointment_id}/cancel")
 def cancel_appointment(
     appointment_id: str,

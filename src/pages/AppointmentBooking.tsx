@@ -4,7 +4,7 @@ import AppHeader from "../components/AppHeader";
 import { useLanguage } from "../i18n/LanguageContext";
 import { DOCTORS_DIRECTORY } from "./DoctorDirectory";
 import { BASE_URL } from "../services/api";
-import { getAuthorizationHeader, setGuestToken } from "../services/authStorage";
+import { ensurePatientOrGuestSession, getPatientAuthorizationHeader } from "../services/authStorage";
 
 interface AppointmentRecord {
   id: string;
@@ -98,17 +98,8 @@ export default function AppointmentBooking() {
     }
 
     // Ensure session token
-    let authHeaders = getAuthorizationHeader();
-    if (!authHeaders.Authorization) {
-      try {
-        const guestRes = await fetch(`${BASE_URL}/api/auth/guest-session`, { method: "POST" });
-        if (guestRes.ok) {
-          const guestData = await guestRes.json();
-          setGuestToken(guestData.token);
-          authHeaders = { Authorization: `Bearer ${guestData.token}` };
-        }
-      } catch {}
-    }
+    await ensurePatientOrGuestSession();
+    const authHeaders = getPatientAuthorizationHeader();
 
     // Attempt atomic server booking
     try {
@@ -163,27 +154,19 @@ export default function AppointmentBooking() {
       saveAppointments(updated);
       setConfirmedTicket(serverTicket);
     } catch {
-      // Local fallback if offline
-      const ticket: AppointmentRecord = {
-        id: `APT-${Date.now().toString().slice(-6)}`,
-        doctorId: selectedDoctor.id,
-        doctorName: selectedDoctor.name,
-        department: selectedDoctor.department,
-        patientName: patientName.trim(),
-        patientPhone: patientPhone.trim(),
-        date: appointmentDate,
-        timeSlot: selectedSlot,
-        status: "CONFIRMED",
-        bookedAt: new Date().toISOString(),
-      };
-      const updated = [ticket, ...appointments];
-      setAppointments(updated);
-      saveAppointments(updated);
-      setConfirmedTicket(ticket);
+      setErrorMsg("Network connection error. Unable to confirm appointment slot with hospital server. Please retry.");
     }
   };
 
-  const handleCancel = (ticketId: string) => {
+  const handleCancel = async (ticketId: string) => {
+    try {
+      const authHeaders = getPatientAuthorizationHeader();
+      await fetch(`${BASE_URL}/api/appointments/${ticketId}/cancel`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+    } catch {}
+
     const updated = appointments.map((a) =>
       a.id === ticketId ? { ...a, status: "CANCELLED" as const } : a
     );

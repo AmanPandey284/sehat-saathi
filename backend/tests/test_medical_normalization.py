@@ -34,3 +34,47 @@ def test_trailing_punctuation_cleaned():
     """Verify that trailing periods like 'mg/L.' are safely stripped."""
     res = normalize_lab_value("CRP", "4.2 mg/L.")
     assert res == "4.2 mg/L"
+
+
+def test_typed_parsing_scientific_and_range():
+    from app.core.medical_reference import parse_typed_clinical_value
+    p1 = parse_typed_clinical_value("1e3")
+    assert p1["kind"] == "exact_numeric"
+    assert p1["exact_val"] == 1000.0
+
+    p2 = parse_typed_clinical_value("15 to 45")
+    assert p2["kind"] == "range"
+    assert p2["range_low"] == 15.0
+    assert p2["range_high"] == 45.0
+
+
+def test_clinical_comparator_inequality_boundaries():
+    from app.core.medical_reference import compare_result
+
+    # 10 mg/L vs <10 mg/L evaluates to above_reference (strictly not within <10)
+    c1 = compare_result("CRP", "10 mg/L", "<10 mg/L")
+    assert c1["status"] == "above_reference"
+
+    # <=10 mg/L vs <10 mg/L evaluates to needs_review (can be 10 or <10)
+    c2 = compare_result("CRP", "<=10 mg/L", "<10 mg/L")
+    assert c2["status"] == "needs_review"
+
+    # Hb <=13 vs 13-17 evaluates to needs_review (13 is normal, <13 is abnormal)
+    c3 = compare_result("Hemoglobin", "<=13 g/dL", "13-17 g/dL")
+    assert c3["status"] == "needs_review"
+
+    # Hb >=17 vs 13-17 evaluates to needs_review (17 is normal, >17 is abnormal)
+    c4 = compare_result("Hemoglobin", ">=17 g/dL", "13-17 g/dL")
+    assert c4["status"] == "needs_review"
+
+
+def test_clinical_comparator_unit_conversions_and_missing_units():
+    from app.core.medical_reference import compare_result
+
+    # 5 g/L converted to 5000 mg/L vs 0-10 mg/L evaluates to above_reference
+    c1 = compare_result("CRP", "5 g/L", "0-10 mg/L")
+    assert c1["status"] == "above_reference"
+
+    # Missing unit when reference requires mg/L evaluates to needs_review
+    c2 = compare_result("CRP", "15", "0-10 mg/L")
+    assert c2["status"] == "needs_review"

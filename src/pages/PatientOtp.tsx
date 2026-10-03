@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BASE_URL } from "../services/api";
+import { setPatientToken } from "../services/authStorage";
 
 export default function PatientOtp() {
   const navigate = useNavigate();
@@ -61,7 +62,7 @@ export default function PatientOtp() {
 
       // Save token to localStorage
       if (data.session_token) {
-        localStorage.setItem("sehat_saathi_auth_token", data.session_token);
+        setPatientToken(data.session_token);
         localStorage.setItem("sehat_saathi_patient_id", state.recipient || "patient");
       }
 

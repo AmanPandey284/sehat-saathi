@@ -20,6 +20,7 @@ export default function DocumentUpload() {
   const { documents, addDocument, removeDocument, updateTimestamps } = usePatientSession();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [consentExternalProcessing, setConsentExternalProcessing] = useState(false);
   const [docCategory, setDocCategory] = useState<
     'prescription' | 'lab_report' | 'ecg_radiology' | 'consultation_record'
   >('prescription');
@@ -37,7 +38,7 @@ export default function DocumentUpload() {
       // Await warm-up before dispatching the heavy OCR upload.
       await warmPromise;
 
-      const r: any = await ocrDocument(file);
+      const r: any = await ocrDocument(file, consentExternalProcessing);
       const previewUrl = file.type.startsWith("image/")
         ? URL.createObjectURL(file)
         : undefined;
@@ -232,6 +233,20 @@ export default function DocumentUpload() {
         </div>
       </div>
 
+      {/* Optional Cloud AI Processing Consent */}
+      <div className="mt-4 flex items-center gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <input
+          id="consent-external-ai"
+          type="checkbox"
+          checked={consentExternalProcessing}
+          onChange={(e) => setConsentExternalProcessing(e.target.checked)}
+          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-4 w-4"
+        />
+        <label htmlFor="consent-external-ai" className="text-xs text-slate-700 cursor-pointer select-none">
+          Allow cloud-assisted OCR processing (OpenAI Vision candidate) for high-accuracy complex document extraction (Optional)
+        </label>
+      </div>
+
       <label className="mt-4 block cursor-pointer rounded-xl border-2 border-dashed border-clinic-200 p-8 text-center hover:bg-clinic-50">
         <span className="font-medium text-clinic-700">
           Choose image, PDF or text document
@@ -350,6 +365,9 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
   const [correctVal, setCorrectVal] = useState("");
   const [correctReason, setCorrectReason] = useState("");
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const data = doc.structuredData ?? null;
   const pages: Array<{ page: number; text: string; confidence?: string }> = doc.pages ?? [];
@@ -372,9 +390,42 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
     doc.name?.toLowerCase().endsWith(".pdf") ||
     previewUrl?.toLowerCase().includes(".pdf");
 
+  // Fetch preview as authenticated blob to avoid 401/403 and preserve privacy
+  useEffect(() => {
+    if (!previewUrl) return;
+    let active = true;
+    let createdUrl: string | null = null;
+
+    const authHeaders = getAuthorizationHeader(true);
+
+    fetch(previewUrl, { headers: authHeaders })
+      .then(async (res) => {
+        if (!active) return;
+        if (!res.ok) {
+          setPreviewError(`Secure preview unavailable (${res.status} ${res.statusText})`);
+          return;
+        }
+        const blob = await res.blob();
+        if (!active) return;
+        createdUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdUrl);
+        setPreviewError(null);
+      })
+      .catch(() => {
+        if (active) setPreviewError("Unable to fetch secure preview. Please verify connectivity.");
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [previewUrl]);
+
   useEffect(() => {
     if (!storedName) return;
-    const authHeaders = getAuthorizationHeader();
+    const authHeaders = getAuthorizationHeader(true);
     fetch(`${BASE_URL}/api/documents/${storedName}/corrections`, {
       headers: authHeaders,
     })
@@ -387,13 +438,39 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
       .catch(() => {});
   }, [storedName]);
 
+  const handleDownload = async () => {
+    if (!downloadUrl) return;
+    setDownloading(true);
+    try {
+      const authHeaders = getAuthorizationHeader(true);
+      const res = await fetch(downloadUrl, { headers: authHeaders });
+      if (!res.ok) {
+        alert("Failed to download file (authorization required).");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.sourceDocument?.originalName || doc.name || "medical_document";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Download failed. Connection error.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handleSaveCorrection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storedName || !correctKey.trim() || !correctVal.trim()) return;
 
     setSubmittingCorrection(true);
     try {
-      const authHeaders = getAuthorizationHeader();
+      const authHeaders = getAuthorizationHeader(true);
       const res = await fetch(`${BASE_URL}/api/documents/${storedName}/corrections`, {
         method: "POST",
         headers: {
@@ -454,14 +531,14 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
             </button>
           )}
           {downloadUrl && (
-            <a
-              href={downloadUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-teal-700 hover:text-teal-900 underline"
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="text-xs font-semibold text-teal-700 hover:text-teal-900 underline disabled:opacity-50"
             >
-              📥 Download File
-            </a>
+              {downloading ? "⏳ Preparing..." : "📥 Download File"}
+            </button>
           )}
           <button
             type="button"
@@ -624,23 +701,31 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
 
           {/* Document Preview Frame */}
           <div className="overflow-auto max-h-[500px] flex items-center justify-center bg-slate-900/5 p-4 rounded-lg border border-slate-100">
-            {isPdf ? (
-              <iframe
-                src={previewUrl}
-                title="PDF Document Preview"
-                className="w-full h-[450px] rounded border"
-              />
+            {previewError ? (
+              <div className="p-8 text-center text-xs text-red-600 font-medium">
+                ⚠️ {previewError}
+              </div>
+            ) : blobUrl ? (
+              isPdf ? (
+                <iframe
+                  src={`${blobUrl}#page=${selectedPage}`}
+                  title={`PDF Document Preview Page ${selectedPage}`}
+                  className="w-full h-[450px] rounded border"
+                />
+              ) : (
+                <img
+                  src={blobUrl}
+                  alt="Document Source"
+                  style={{
+                    transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                    transformOrigin: "center center",
+                    transition: "transform 0.2s ease-out",
+                  }}
+                  className="max-h-[450px] object-contain rounded shadow-xs"
+                />
+              )
             ) : (
-              <img
-                src={previewUrl}
-                alt="Document Source"
-                style={{
-                  transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-                  transformOrigin: "center center",
-                  transition: "transform 0.2s ease-out",
-                }}
-                className="max-h-[450px] object-contain rounded shadow-xs"
-              />
+              <div className="p-8 text-xs text-slate-400">Loading secure preview…</div>
             )}
           </div>
         </div>

@@ -28,13 +28,17 @@ class CreateEncounterRequest(BaseModel):
     documents: list[dict[str, Any]] = Field(default_factory=list)
     vitals: list[dict[str, Any]] = Field(default_factory=list)
     lab_results: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    safety_flags: list[dict[str, Any]] = Field(default_factory=list)
+    background_history: dict[str, Any] = Field(default_factory=dict)
+    client_intake_id: str | None = None
     clinical_summary: str = ""
 
 
 class SignoffEncounterRequest(BaseModel):
     decision: str = Field(description="'CONFIRMED_AND_SIGNED', 'CLARIFICATION_REQUESTED', or 'FLAGGED_HIGH_RISK'")
     review_note: str = ""
-    expected_version: int | None = Field(default=None, description="Current encounter version for optimistic locking")
+    expected_version: int = Field(..., description="Current encounter version for optimistic locking (mandatory)")
 
 
 VALID_DECISIONS = {
@@ -56,6 +60,20 @@ def create_encounter(
     else:
         bound_patient_id = user["sub"]
 
+    # Idempotent re-submission check if client_intake_id is provided
+    if req.client_intake_id:
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id FROM encounters WHERE client_intake_id = ? AND patient_id = ?;",
+                (req.client_intake_id, bound_patient_id),
+            ).fetchone()
+            if existing:
+                return {
+                    "ok": True,
+                    "encounter": _fetch_encounter(existing["id"]),
+                    "idempotent_duplicate": True,
+                }
+
     enc_id = f"enc-{uuid.uuid4().hex[:8]}"
     now = int(time.time())
 
@@ -67,8 +85,9 @@ def create_encounter(
                 abdm_consent, triage_level, chief_complaint,
                 history_json, ayush_json, documents_json,
                 vitals_json, labs_json, summary_text,
+                evidence_json, safety_flags_json, background_json, client_intake_id,
                 version, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 enc_id,
@@ -86,6 +105,10 @@ def create_encounter(
                 json.dumps(req.vitals),
                 json.dumps(req.lab_results),
                 req.clinical_summary,
+                json.dumps(req.evidence),
+                json.dumps(req.safety_flags),
+                json.dumps(req.background_history),
+                req.client_intake_id,
                 1,
                 now,
                 now,
@@ -127,6 +150,9 @@ def _fetch_encounter(enc_id: str) -> dict[str, Any]:
         d["documents"] = json.loads(d.pop("documents_json") or "[]")
         d["vitals"] = json.loads(d.pop("vitals_json") or "[]")
         d["lab_results"] = json.loads(d.pop("labs_json") or "[]")
+        d["evidence"] = json.loads(d.pop("evidence_json", None) or "[]")
+        d["safety_flags"] = json.loads(d.pop("safety_flags_json", None) or "[]")
+        d["background_history"] = json.loads(d.pop("background_json", None) or "{}")
         d["clinical_summary"] = d.pop("summary_text") or ""
         d["abdm_consent"] = bool(d["abdm_consent"])
 
@@ -194,8 +220,8 @@ def signoff_encounter(
 
         current_version = row["version"]
 
-        # Optimistic Locking Check
-        if req.expected_version is not None and current_version != req.expected_version:
+        # Optimistic Locking Check (mandatory)
+        if current_version != req.expected_version:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Stale write detected. Encounter was updated by another reviewer (version {current_version} != expected {req.expected_version}). Please refresh and review.",

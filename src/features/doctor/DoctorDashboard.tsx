@@ -85,7 +85,7 @@ export default function DoctorDashboard() {
                     submittedAt: new Date(enc.created_at * 1000).toISOString(),
                     patientProfile: {
                       name: enc.patient_name || "Patient",
-                      age: enc.age ? String(enc.age) : "30",
+                      age: enc.age ? String(enc.age) : "",
                       sex: enc.gender || "Unknown",
                       identifier: enc.abha_id || enc.patient_id || "ID",
                       identifierType: (enc.abha_id ? "abha" : "demo") as "demo" | "abha",
@@ -99,17 +99,19 @@ export default function DoctorDashboard() {
                       source: "patient",
                     },
                     historyAnswers: enc.history_present_illness || {},
-                    evidence: [],
-                    safetyFlags: enc.triage_level === "priority" ? [{
-                      id: "triage-priority",
-                      severity: "urgent" as const,
-                      title: "Priority Triage",
-                      explanation: "Priority flag from clinical intake",
-                      field: "triage",
-                      triggeredAt: new Date(enc.created_at * 1000).toISOString(),
-                    }] : [],
+                    evidence: enc.evidence || [],
+                    safetyFlags: Array.isArray(enc.safety_flags) && enc.safety_flags.length > 0
+                      ? enc.safety_flags
+                      : (enc.triage_level === "priority" ? [{
+                          id: "triage-priority",
+                          severity: "urgent" as const,
+                          title: "Priority Triage",
+                          explanation: "Priority flag from clinical intake",
+                          field: "triage",
+                          triggeredAt: new Date(enc.created_at * 1000).toISOString(),
+                        }] : []),
                     documents: enc.documents || [],
-                    backgroundHistory: {
+                    backgroundHistory: enc.background_history || {
                       pastMedical: "",
                       pastSurgical: "",
                       medications: "",
@@ -121,11 +123,12 @@ export default function DoctorDashboard() {
                     timeline: [],
                     doctorReviews: [],
                     ayushHistory: enc.ayush_intake || {},
+                    version: enc.version || 1,
                     reviewStatus: (enc.physician_decision ? "reviewed" : "pending") as "pending" | "reviewed",
                     physicianDecision: enc.physician_decision === "CONFIRMED_AND_SIGNED" ? "confirmed" : enc.physician_decision === "CLARIFICATION_REQUESTED" ? "clarification" : enc.physician_decision === "FLAGGED_HIGH_RISK" ? "flagged" : undefined,
                     physicianReviewNote: enc.physician_review_note,
                     physicianDecisionBy: enc.physician_signed_by,
-                  });
+                  } as any);
                 }
               }
               return [...newRecords, ...prev];
@@ -474,6 +477,8 @@ export default function DoctorDashboard() {
           ? 'CLARIFICATION_REQUESTED'
           : 'FLAGGED_HIGH_RISK';
 
+      const currentVersion = (activeRecord as any).version || 1;
+
       fetch(`${BASE_URL}/api/encounters/${activeRecord.id}/signoff`, {
         method: "POST",
         headers: {
@@ -483,8 +488,24 @@ export default function DoctorDashboard() {
         body: JSON.stringify({
           decision: apiDecision,
           review_note: reviewNoteInput.trim(),
+          expected_version: currentVersion,
         }),
-      }).catch(() => {});
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            if (res.status === 409) {
+              alert("Conflict: This encounter was updated by another reviewer. Please refresh your clinical queue.");
+            }
+            return;
+          }
+          const data = await res.json();
+          if (data.ok && data.encounter) {
+            updatePatientRecord(activeRecord.id, {
+              version: data.encounter.version,
+            } as any);
+          }
+        })
+        .catch(() => {});
     }
   };
 

@@ -178,7 +178,7 @@ async def transcribe_voice(
             "file": (file.filename or "recording.webm", audio_bytes, file.content_type or "audio/webm"),
         }
         data = {
-            "model": "whisper-1",
+            "model": settings.openai_transcription_model,
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:

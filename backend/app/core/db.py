@@ -112,6 +112,10 @@ def init_db() -> None:
                 vitals_json TEXT,
                 labs_json TEXT,
                 summary_text TEXT,
+                evidence_json TEXT,
+                safety_flags_json TEXT,
+                background_json TEXT,
+                client_intake_id TEXT,
                 version INTEGER DEFAULT 1,
                 physician_decision TEXT,
                 physician_review_note TEXT,
@@ -121,8 +125,21 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL
             );
         """)
+        # Ensure migration columns in encounters
+        cur = conn.execute("PRAGMA table_info(encounters);")
+        existing_cols = {row["name"] for row in cur.fetchall()}
+        for col_name, col_type in [
+            ("evidence_json", "TEXT"),
+            ("safety_flags_json", "TEXT"),
+            ("background_json", "TEXT"),
+            ("client_intake_id", "TEXT"),
+        ]:
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE encounters ADD COLUMN {col_name} {col_type};")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_encounters_patient ON encounters(patient_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_encounters_abha ON encounters(abha_id);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_encounters_client_intake ON encounters(client_intake_id);")
 
         # Encounter Audit Trail
         conn.execute("""
@@ -173,26 +190,51 @@ def init_db() -> None:
             );
         """)
 
-        # Appointments Table with Atomic Slot Constraint
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS appointments (
-                id TEXT PRIMARY KEY,
-                doctor_id TEXT NOT NULL,
-                doctor_name TEXT NOT NULL,
-                department TEXT NOT NULL,
-                patient_name TEXT NOT NULL,
-                patient_phone TEXT NOT NULL,
-                patient_id TEXT NOT NULL,
-                date TEXT NOT NULL,
-                time_slot TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'CONFIRMED',
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                UNIQUE(doctor_id, date, time_slot)
-            );
-        """)
+        # Appointments Table with Active Slot Partial Index
+        cur = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='appointments';")
+        apt_row = cur.fetchone()
+        apt_sql = apt_row["sql"] if apt_row else ""
+        if apt_row and "UNIQUE" in apt_sql and "WHERE" not in apt_sql:
+            # Table-level unique constraint prevents rebooking cancelled slots; migrate table
+            conn.execute("""
+                CREATE TABLE appointments_migrated (
+                    id TEXT PRIMARY KEY,
+                    doctor_id TEXT NOT NULL,
+                    doctor_name TEXT NOT NULL,
+                    department TEXT NOT NULL,
+                    patient_name TEXT NOT NULL,
+                    patient_phone TEXT NOT NULL,
+                    patient_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    time_slot TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'CONFIRMED',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+            """)
+            conn.execute("INSERT INTO appointments_migrated SELECT * FROM appointments;")
+            conn.execute("DROP TABLE appointments;")
+            conn.execute("ALTER TABLE appointments_migrated RENAME TO appointments;")
+        else:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS appointments (
+                    id TEXT PRIMARY KEY,
+                    doctor_id TEXT NOT NULL,
+                    doctor_name TEXT NOT NULL,
+                    department TEXT NOT NULL,
+                    patient_name TEXT NOT NULL,
+                    patient_phone TEXT NOT NULL,
+                    patient_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    time_slot TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'CONFIRMED',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+            """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor_date ON appointments(doctor_id, date);")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_active_appointments ON appointments(doctor_id, date, time_slot) WHERE status = 'CONFIRMED';")
 
         # OTP Challenges Table (Durable Rate Limiting & Verification)
         conn.execute("""

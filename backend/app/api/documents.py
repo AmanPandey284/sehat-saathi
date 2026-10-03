@@ -255,113 +255,123 @@ async def ocr_document(
 
     stored_name = _safe_filename(original_name)
     stored_path = UPLOAD_DIR / stored_name
-    stored_path.write_bytes(data)
+    registered = False
 
-    preview_url = f"/api/documents/{stored_name}/preview"
-    download_url = f"/api/documents/{stored_name}/download"
-    mime_type = _get_mime_type(ext)
+    try:
+        stored_path.write_bytes(data)
 
-    # Extraction candidate: OpenAI Vision vs Local Pipeline
-    openai_structured = None
-    extraction_provider = "local_pymupdf"
-    pages: list[dict[str, Any]] = []
-    text = ""
-    truncation_warning = None
+        preview_url = f"/api/documents/{stored_name}/preview"
+        download_url = f"/api/documents/{stored_name}/download"
+        mime_type = _get_mime_type(ext)
 
-    if ext in (".txt", ".csv", ".md"):
-        text = data.decode("utf-8", errors="replace")
-        pages = [{"page": 1, "text": text, "confidence": "source_verified_text"}]
-    elif ext == ".pdf":
-        text, pages, total_pages = await asyncio.to_thread(_process_pdf, data, original_name)
-        if total_pages > MAX_PDF_PAGES:
-            truncation_warning = f"PDF contains {total_pages} pages; processed pages 1–{MAX_PDF_PAGES}. Additional pages were bounded for processing limits."
-    else:
-        # Strictly gate OpenAI Vision behind explicit consent
-        if consent_external_processing and settings.openai_api_key:
-            openai_structured = await _extract_with_openai_vision(data, ext, original_name)
+        # Extraction candidate: OpenAI Vision vs Local Pipeline
+        openai_structured = None
+        extraction_provider = "local_pymupdf"
+        pages: list[dict[str, Any]] = []
+        text = ""
+        truncation_warning = None
 
-        if openai_structured:
-            extraction_provider = "openai_vision"
-            text = f"[Structured extraction via OpenAI {settings.openai_document_model}]"
-            pages = [{"page": 1, "text": text, "confidence": "openai_vision_structured"}]
+        if ext in (".txt", ".csv", ".md"):
+            text = data.decode("utf-8", errors="replace")
+            pages = [{"page": 1, "text": text, "confidence": "source_verified_text"}]
+        elif ext == ".pdf":
+            text, pages, total_pages = await asyncio.to_thread(_process_pdf, data, original_name)
+            if total_pages > MAX_PDF_PAGES:
+                truncation_warning = f"PDF contains {total_pages} pages; processed pages 1–{MAX_PDF_PAGES}. Additional pages were bounded for processing limits."
         else:
-            text, pages = await asyncio.to_thread(_ocr_image, data, original_name)
+            # Strictly gate OpenAI Vision behind explicit consent
+            if consent_external_processing and settings.openai_api_key:
+                openai_structured = await _extract_with_openai_vision(data, ext, original_name)
 
-    # Process structured entities
-    if openai_structured:
-        structured = openai_structured
-    else:
-        structured = await asyncio.to_thread(extract_medical_document, text)
+            if openai_structured:
+                extraction_provider = "openai_vision"
+                text = f"[Structured extraction via OpenAI {settings.openai_document_model}]"
+                pages = [{"page": 1, "text": text, "confidence": "openai_vision_structured"}]
+            else:
+                text, pages = await asyncio.to_thread(_ocr_image, data, original_name)
 
-    # Default review status tags on all extracted entities
-    for category in ("chiefComplaints", "vitals", "laboratoryResults", "medications", "diagnoses"):
-        if category in structured and isinstance(structured[category], list):
-            for item in structured[category]:
-                if isinstance(item, dict):
-                    item.setdefault("reviewStatus", "DOCUMENT_EXTRACTED")
-                    item.setdefault("verifiedBy", None)
-                    item.setdefault("verifiedAt", None)
+        # Process structured entities
+        if openai_structured:
+            structured = openai_structured
+        else:
+            structured = await asyncio.to_thread(extract_medical_document, text)
 
-    # Attention items
-    attention_items: list[dict[str, Any]] = []
-    for item in structured.get("vitals", []):
-        if item.get("attention"):
-            attention_items.append({
-                "type": "Vital",
-                "name": item.get("name"),
-                "patientValue": item.get("patientValue"),
-                "referenceRange": item.get("reference_range") or item.get("referenceRange"),
-                "status": item.get("status"),
-                "comparison": item.get("comparison"),
-            })
+        # Default review status tags on all extracted entities
+        for category in ("chiefComplaints", "vitals", "laboratoryResults", "medications", "diagnoses"):
+            if category in structured and isinstance(structured[category], list):
+                for item in structured[category]:
+                    if isinstance(item, dict):
+                        item.setdefault("reviewStatus", "DOCUMENT_EXTRACTED")
+                        item.setdefault("verifiedBy", None)
+                        item.setdefault("verifiedAt", None)
 
-    for item in structured.get("laboratoryResults", []):
-        if item.get("attention"):
-            attention_items.append({
-                "type": "Laboratory",
-                "name": item.get("testName"),
-                "patientValue": item.get("patientValue"),
-                "referenceRange": item.get("referenceRange") or item.get("reference_range"),
-                "status": item.get("status"),
-                "comparison": item.get("comparison"),
-            })
+        # Attention items
+        attention_items: list[dict[str, Any]] = []
+        for item in structured.get("vitals", []):
+            if item.get("attention"):
+                attention_items.append({
+                    "type": "Vital",
+                    "name": item.get("name"),
+                    "patientValue": item.get("patientValue"),
+                    "referenceRange": item.get("reference_range") or item.get("referenceRange"),
+                    "status": item.get("status"),
+                    "comparison": item.get("comparison"),
+                })
 
-    # Persist document record into transactional database
-    now = int(time.time())
-    with transaction() as conn:
-        conn.execute(
-            """
-            INSERT INTO documents (
-                stored_name, original_name, ext, mime_type,
-                owner_id, owner_role, encounter_id,
-                consent_external_processing, text_content,
-                pages_json, structured_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            (
-                stored_name,
-                original_name,
-                ext,
-                mime_type,
-                user["sub"],
-                user.get("role", "patient"),
-                encounter_id,
-                1 if consent_external_processing else 0,
-                text,
-                json.dumps(pages),
-                json.dumps(structured),
-                now,
-            ),
-        )
+        for item in structured.get("laboratoryResults", []):
+            if item.get("attention"):
+                attention_items.append({
+                    "type": "Laboratory",
+                    "name": item.get("testName"),
+                    "patientValue": item.get("patientValue"),
+                    "referenceRange": item.get("referenceRange") or item.get("reference_range"),
+                    "status": item.get("status"),
+                    "comparison": item.get("comparison"),
+                })
 
-        if consent_external_processing:
+        # Persist document record into transactional database
+        now = int(time.time())
+        with transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO user_consents (user_id, consent_type, granted, timestamp)
-                VALUES (?, ?, ?, ?);
+                INSERT INTO documents (
+                    stored_name, original_name, ext, mime_type,
+                    owner_id, owner_role, encounter_id,
+                    consent_external_processing, text_content,
+                    pages_json, structured_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                (user["sub"], "external_ai_document_processing", 1, now),
+                (
+                    stored_name,
+                    original_name,
+                    ext,
+                    mime_type,
+                    user["sub"],
+                    user.get("role", "patient"),
+                    encounter_id,
+                    1 if consent_external_processing else 0,
+                    text,
+                    json.dumps(pages),
+                    json.dumps(structured),
+                    now,
+                ),
             )
+
+            if consent_external_processing:
+                conn.execute(
+                    """
+                    INSERT INTO user_consents (user_id, consent_type, granted, timestamp)
+                    VALUES (?, ?, ?, ?);
+                    """,
+                    (user["sub"], "external_ai_document_processing", 1, now),
+                )
+        registered = True
+    finally:
+        if not registered and stored_path.exists():
+            try:
+                stored_path.unlink()
+            except Exception:
+                pass
 
     return {
         "name": original_name,
@@ -413,6 +423,35 @@ def submit_document_correction(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this document.")
 
     now = int(time.time())
+    structured = json.loads(doc["structured_json"] or "{}")
+    derived_orig = req.original_value
+
+    # Update structured JSON with corrected value
+    # Check vitals and laboratoryResults
+    for cat in ("vitals", "laboratoryResults", "medications", "diagnoses", "chiefComplaints"):
+        items = structured.get(cat, [])
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    name_key = item.get("name") or item.get("testName") or ""
+                    if name_key == req.field_key or req.field_key.endswith(name_key):
+                        if not derived_orig:
+                            derived_orig = str(item.get("patientValue") or item.get("value") or "")
+                        item["patientValue"] = req.corrected_value
+                        item["reviewStatus"] = "CORRECTED"
+                        item["verifiedBy"] = user["sub"]
+                        item["verifiedAt"] = datetime.now(timezone.utc).isoformat()
+
+    # Track effective corrections map in structured payload
+    structured.setdefault("effectiveCorrections", {})[req.field_key] = {
+        "original_value": derived_orig,
+        "corrected_value": req.corrected_value,
+        "author": user["sub"],
+        "role": user.get("role", "patient"),
+        "timestamp": now,
+        "reason": req.reason,
+    }
+
     with transaction() as conn:
         conn.execute(
             """
@@ -424,7 +463,7 @@ def submit_document_correction(
             (
                 stored_name,
                 req.field_key,
-                req.original_value,
+                derived_orig,
                 req.corrected_value,
                 user["sub"],
                 user.get("role", "patient"),
@@ -433,18 +472,24 @@ def submit_document_correction(
             ),
         )
 
+        conn.execute(
+            "UPDATE documents SET structured_json = ? WHERE stored_name = ?;",
+            (json.dumps(structured), stored_name),
+        )
+
     return {
         "ok": True,
         "message": f"Correction for '{req.field_key}' recorded successfully.",
         "correction": {
             "field_key": req.field_key,
-            "original_value": req.original_value,
+            "original_value": derived_orig,
             "corrected_value": req.corrected_value,
             "author": user["sub"],
             "role": user.get("role", "patient"),
             "timestamp": now,
             "reason": req.reason,
         },
+        "effectiveStructuredData": structured,
     }
 
 
@@ -478,22 +523,27 @@ async def preview_document(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> FileResponse:
     clean_name = os.path.basename(stored_name)
-    file_path = UPLOAD_DIR / clean_name
 
+    # Require document DB record before serving any file
+    with get_db() as conn:
+        doc = conn.execute("SELECT * FROM documents WHERE stored_name = ?;", (clean_name,)).fetchone()
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found or access expired.",
+            )
+        if user.get("role") not in ("doctor", "admin") and doc["owner_id"] != user["sub"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this document.",
+            )
+
+    file_path = UPLOAD_DIR / clean_name
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found or access expired.",
+            detail="Document file not found on server storage.",
         )
-
-    with get_db() as conn:
-        doc = conn.execute("SELECT * FROM documents WHERE stored_name = ?;", (clean_name,)).fetchone()
-        if doc:
-            if user.get("role") not in ("doctor", "admin") and doc["owner_id"] != user["sub"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied to this document.",
-                )
 
     ext = _ext(clean_name)
     media_type = _get_mime_type(ext)
@@ -511,22 +561,27 @@ async def download_document(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> FileResponse:
     clean_name = os.path.basename(stored_name)
-    file_path = UPLOAD_DIR / clean_name
 
+    # Require document DB record before serving any file
+    with get_db() as conn:
+        doc = conn.execute("SELECT * FROM documents WHERE stored_name = ?;", (clean_name,)).fetchone()
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found or access expired.",
+            )
+        if user.get("role") not in ("doctor", "admin") and doc["owner_id"] != user["sub"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this document.",
+            )
+
+    file_path = UPLOAD_DIR / clean_name
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found or access expired.",
+            detail="Document file not found on server storage.",
         )
-
-    with get_db() as conn:
-        doc = conn.execute("SELECT * FROM documents WHERE stored_name = ?;", (clean_name,)).fetchone()
-        if doc:
-            if user.get("role") not in ("doctor", "admin") and doc["owner_id"] != user["sub"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied to this document.",
-                )
 
     ext = _ext(clean_name)
     media_type = _get_mime_type(ext)
