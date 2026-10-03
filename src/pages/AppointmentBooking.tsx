@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import { useLanguage } from "../i18n/LanguageContext";
 import { DOCTORS_DIRECTORY } from "./DoctorDirectory";
+import { BASE_URL } from "../services/api";
+import { getAuthorizationHeader, setGuestToken } from "../services/authStorage";
 
 interface AppointmentRecord {
   id: string;
@@ -63,9 +65,30 @@ export default function AppointmentBooking() {
   const [confirmedTicket, setConfirmedTicket] = useState<AppointmentRecord | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [unavailableSlots, setUnavailableSlots] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAvailability() {
+      try {
+        const res = await fetch(`${BASE_URL}/api/appointments/availability?doctor_id=${selectedDocId}&date=${appointmentDate}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && Array.isArray(data.booked_slots)) {
+            setUnavailableSlots(data.booked_slots);
+          }
+        }
+      } catch {}
+    }
+    checkAvailability();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDocId, appointmentDate]);
+
   const selectedDoctor = DOCTORS_DIRECTORY.find((d) => d.id === selectedDocId) || DOCTORS_DIRECTORY[0];
 
-  const handleBook = (e: React.FormEvent) => {
+  const handleBook = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -74,39 +97,90 @@ export default function AppointmentBooking() {
       return;
     }
 
-    // Check conflict for this doctor on the selected date and slot
-    const conflict = appointments.find(
-      (a) =>
-        a.doctorId === selectedDocId &&
-        a.date === appointmentDate &&
-        a.timeSlot === selectedSlot &&
-        a.status === "CONFIRMED"
-    );
-
-    if (conflict) {
-      setErrorMsg(
-        `This time slot (${selectedSlot}) with ${selectedDoctor.name} is already booked. Please choose another slot or date.`
-      );
-      return;
+    // Ensure session token
+    let authHeaders = getAuthorizationHeader();
+    if (!authHeaders.Authorization) {
+      try {
+        const guestRes = await fetch(`${BASE_URL}/api/auth/guest-session`, { method: "POST" });
+        if (guestRes.ok) {
+          const guestData = await guestRes.json();
+          setGuestToken(guestData.token);
+          authHeaders = { Authorization: `Bearer ${guestData.token}` };
+        }
+      } catch {}
     }
 
-    const ticket: AppointmentRecord = {
-      id: `APT-${Date.now().toString().slice(-6)}`,
-      doctorId: selectedDoctor.id,
-      doctorName: selectedDoctor.name,
-      department: selectedDoctor.department,
-      patientName: patientName.trim(),
-      patientPhone: patientPhone.trim(),
-      date: appointmentDate,
-      timeSlot: selectedSlot,
-      status: "CONFIRMED",
-      bookedAt: new Date().toISOString(),
-    };
+    // Attempt atomic server booking
+    try {
+      const res = await fetch(`${BASE_URL}/api/appointments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          doctor_id: selectedDoctor.id,
+          doctor_name: selectedDoctor.name,
+          department: selectedDoctor.department,
+          patient_name: patientName.trim(),
+          patient_phone: patientPhone.trim(),
+          date: appointmentDate,
+          time_slot: selectedSlot,
+        }),
+      });
 
-    const updated = [ticket, ...appointments];
-    setAppointments(updated);
-    saveAppointments(updated);
-    setConfirmedTicket(ticket);
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        setErrorMsg(
+          conflictData.detail ||
+            `This time slot (${selectedSlot}) on ${appointmentDate} has already been confirmed by another patient. Please choose another slot.`
+        );
+        return;
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMsg(errData.detail || "Unable to confirm appointment. Please check availability.");
+        return;
+      }
+
+      const data = await res.json();
+      const serverTicket: AppointmentRecord = {
+        id: data.appointment?.id || `APT-${Date.now().toString().slice(-6)}`,
+        doctorId: selectedDoctor.id,
+        doctorName: selectedDoctor.name,
+        department: selectedDoctor.department,
+        patientName: patientName.trim(),
+        patientPhone: patientPhone.trim(),
+        date: appointmentDate,
+        timeSlot: selectedSlot,
+        status: "CONFIRMED",
+        bookedAt: new Date().toISOString(),
+      };
+
+      const updated = [serverTicket, ...appointments];
+      setAppointments(updated);
+      saveAppointments(updated);
+      setConfirmedTicket(serverTicket);
+    } catch {
+      // Local fallback if offline
+      const ticket: AppointmentRecord = {
+        id: `APT-${Date.now().toString().slice(-6)}`,
+        doctorId: selectedDoctor.id,
+        doctorName: selectedDoctor.name,
+        department: selectedDoctor.department,
+        patientName: patientName.trim(),
+        patientPhone: patientPhone.trim(),
+        date: appointmentDate,
+        timeSlot: selectedSlot,
+        status: "CONFIRMED",
+        bookedAt: new Date().toISOString(),
+      };
+      const updated = [ticket, ...appointments];
+      setAppointments(updated);
+      saveAppointments(updated);
+      setConfirmedTicket(ticket);
+    }
   };
 
   const handleCancel = (ticketId: string) => {
@@ -275,11 +349,14 @@ export default function AppointmentBooking() {
                       onChange={(e) => setSelectedSlot(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-none bg-white"
                     >
-                      {TIME_SLOTS.map((slot) => (
-                        <option key={slot} value={slot}>
-                          {slot}
-                        </option>
-                      ))}
+                      {TIME_SLOTS.map((slot) => {
+                        const isBooked = unavailableSlots.includes(slot);
+                        return (
+                          <option key={slot} value={slot} disabled={isBooked}>
+                            {slot} {isBooked ? "(Booked / Unavailable)" : ""}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>

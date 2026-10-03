@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import time
 from typing import Any
 import uuid
@@ -9,30 +8,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
 from app.core.auth import get_current_user
+from app.core.db import get_db, transaction
 
 router = APIRouter(prefix="/encounters", tags=["encounters"])
-
-DATA_PATH = Path(settings.data_dir)
-ENCOUNTERS_FILE = DATA_PATH / "encounters.json"
-
-
-def _load_encounters() -> list[dict[str, Any]]:
-    DATA_PATH.mkdir(parents=True, exist_ok=True)
-    if ENCOUNTERS_FILE.exists():
-        try:
-            with open(ENCOUNTERS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
-
-
-def _save_encounters(encounters: list[dict[str, Any]]) -> None:
-    DATA_PATH.mkdir(parents=True, exist_ok=True)
-    with open(ENCOUNTERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(encounters, f, indent=2)
 
 
 class CreateEncounterRequest(BaseModel):
@@ -55,68 +34,128 @@ class CreateEncounterRequest(BaseModel):
 class SignoffEncounterRequest(BaseModel):
     decision: str = Field(description="'CONFIRMED_AND_SIGNED', 'CLARIFICATION_REQUESTED', or 'FLAGGED_HIGH_RISK'")
     review_note: str = ""
+    expected_version: int | None = Field(default=None, description="Current encounter version for optimistic locking")
+
+
+VALID_DECISIONS = {
+    "CONFIRMED_AND_SIGNED",
+    "CLARIFICATION_REQUESTED",
+    "FLAGGED_HIGH_RISK",
+}
 
 
 @router.post("")
 def create_encounter(
     req: CreateEncounterRequest,
+    user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    encounters = _load_encounters()
+    # Security: bind patient identity to authenticated session token
+    # Only physicians/admins can explicitly specify a different patient_id
+    if user.get("role") in ("doctor", "admin") and req.patient_id:
+        bound_patient_id = req.patient_id
+    else:
+        bound_patient_id = user["sub"]
+
     enc_id = f"enc-{uuid.uuid4().hex[:8]}"
     now = int(time.time())
 
-    new_enc = {
-        "id": enc_id,
-        "patient_id": req.patient_id or f"pat-{uuid.uuid4().hex[:6]}",
-        "patient_name": req.patient_name,
-        "age": req.age,
-        "gender": req.gender,
-        "abha_id": req.abha_id,
-        "abdm_consent": req.abdm_consent,
-        "triage_level": req.triage_level,
-        "chief_complaint": req.chief_complaint,
-        "history_present_illness": req.history_present_illness,
-        "ayush_intake": req.ayush_intake,
-        "documents": req.documents,
-        "vitals": req.vitals,
-        "lab_results": req.lab_results,
-        "clinical_summary": req.clinical_summary,
-        "version": 1,
-        "created_at": now,
-        "updated_at": now,
-        "physician_decision": None,
-        "physician_review_note": None,
-        "physician_signed_by": None,
-        "physician_signed_at": None,
-        "audit_trail": [
-            {
-                "action": "ENCOUNTER_CREATED",
-                "actor": "patient_session",
-                "timestamp": now,
-                "note": "Patient submitted clinical intake",
-            }
-        ],
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO encounters (
+                id, patient_id, patient_name, age, gender, abha_id,
+                abdm_consent, triage_level, chief_complaint,
+                history_json, ayush_json, documents_json,
+                vitals_json, labs_json, summary_text,
+                version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                enc_id,
+                bound_patient_id,
+                req.patient_name,
+                req.age,
+                req.gender,
+                req.abha_id,
+                1 if req.abdm_consent else 0,
+                req.triage_level,
+                req.chief_complaint,
+                json.dumps(req.history_present_illness),
+                json.dumps(req.ayush_intake),
+                json.dumps(req.documents),
+                json.dumps(req.vitals),
+                json.dumps(req.lab_results),
+                req.clinical_summary,
+                1,
+                now,
+                now,
+            ),
+        )
+
+        conn.execute(
+            """
+            INSERT INTO encounter_audit (encounter_id, action, actor, actor_name, timestamp, note)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (
+                enc_id,
+                "ENCOUNTER_CREATED",
+                user["sub"],
+                user.get("name", "Patient"),
+                now,
+                "Patient clinical intake submitted and queued for physician verification",
+            ),
+        )
+
+    # Return full encounter record
+    return {
+        "ok": True,
+        "encounter": _fetch_encounter(enc_id),
     }
 
-    encounters.append(new_enc)
-    _save_encounters(encounters)
-    return {"ok": True, "encounter": new_enc}
+
+def _fetch_encounter(enc_id: str) -> dict[str, Any]:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM encounters WHERE id = ?;", (enc_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Encounter not found.")
+
+        d = dict(row)
+        # Parse JSON fields
+        d["history_present_illness"] = json.loads(d.pop("history_json") or "{}")
+        d["ayush_intake"] = json.loads(d.pop("ayush_json") or "{}")
+        d["documents"] = json.loads(d.pop("documents_json") or "[]")
+        d["vitals"] = json.loads(d.pop("vitals_json") or "[]")
+        d["lab_results"] = json.loads(d.pop("labs_json") or "[]")
+        d["clinical_summary"] = d.pop("summary_text") or ""
+        d["abdm_consent"] = bool(d["abdm_consent"])
+
+        # Fetch audit trail
+        audit_rows = conn.execute(
+            "SELECT action, actor, actor_name, timestamp, note FROM encounter_audit WHERE encounter_id = ? ORDER BY timestamp ASC;",
+            (enc_id,),
+        ).fetchall()
+        d["audit_trail"] = [dict(a) for a in audit_rows]
+        return d
 
 
 @router.get("")
 def list_encounters(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    encounters = _load_encounters()
     role = user.get("role")
     sub = user.get("sub")
 
-    # If physician/admin, return all clinical encounters
-    if role in ("doctor", "admin"):
-        return encounters
+    with get_db() as conn:
+        if role in ("doctor", "admin"):
+            rows = conn.execute("SELECT id FROM encounters ORDER BY created_at DESC;").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id FROM encounters WHERE patient_id = ? OR abha_id = ? ORDER BY created_at DESC;",
+                (sub, sub),
+            ).fetchall()
 
-    # If patient, return only their owned encounters
-    return [e for e in encounters if e.get("patient_id") == sub or e.get("abha_id") == sub]
+    return [_fetch_encounter(r["id"]) for r in rows]
 
 
 @router.get("/{encounter_id}")
@@ -124,16 +163,11 @@ def get_encounter(
     encounter_id: str,
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    encounters = _load_encounters()
-    for enc in encounters:
-        if enc["id"] == encounter_id:
-            # Authorization check
-            if user.get("role") not in ("doctor", "admin"):
-                if enc.get("patient_id") != user.get("sub") and enc.get("abha_id") != user.get("sub"):
-                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this clinical record.")
-            return enc
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Encounter not found.")
+    enc = _fetch_encounter(encounter_id)
+    if user.get("role") not in ("doctor", "admin"):
+        if enc["patient_id"] != user["sub"] and enc.get("abha_id") != user["sub"]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this clinical record.")
+    return enc
 
 
 @router.post("/{encounter_id}/signoff")
@@ -145,24 +179,69 @@ def signoff_encounter(
     if doctor.get("role") not in ("doctor", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only licensed physicians may sign off on clinical encounters.")
 
-    encounters = _load_encounters()
-    for enc in encounters:
-        if enc["id"] == encounter_id:
-            now = int(time.time())
-            enc["version"] = enc.get("version", 1) + 1
-            enc["updated_at"] = now
-            enc["physician_decision"] = req.decision
-            enc["physician_review_note"] = req.review_note
-            enc["physician_signed_by"] = doctor.get("name") or doctor.get("sub")
-            enc["physician_signed_at"] = now
-            enc.setdefault("audit_trail", []).append({
-                "action": f"DECISION_{req.decision}",
-                "actor": doctor.get("sub"),
-                "actor_name": doctor.get("name"),
-                "timestamp": now,
-                "note": req.review_note,
-            })
-            _save_encounters(encounters)
-            return {"ok": True, "encounter": enc}
+    if req.decision not in VALID_DECISIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid decision '{req.decision}'. Allowed decisions: {', '.join(sorted(VALID_DECISIONS))}",
+        )
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Encounter not found.")
+    now = int(time.time())
+
+    with transaction() as conn:
+        row = conn.execute("SELECT version FROM encounters WHERE id = ?;", (encounter_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Encounter not found.")
+
+        current_version = row["version"]
+
+        # Optimistic Locking Check
+        if req.expected_version is not None and current_version != req.expected_version:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Stale write detected. Encounter was updated by another reviewer (version {current_version} != expected {req.expected_version}). Please refresh and review.",
+            )
+
+        new_version = current_version + 1
+        doctor_name = doctor.get("name") or doctor.get("sub")
+
+        conn.execute(
+            """
+            UPDATE encounters SET
+                version = ?,
+                updated_at = ?,
+                physician_decision = ?,
+                physician_review_note = ?,
+                physician_signed_by = ?,
+                physician_signed_at = ?
+            WHERE id = ?;
+            """,
+            (
+                new_version,
+                now,
+                req.decision,
+                req.review_note,
+                doctor_name,
+                now,
+                encounter_id,
+            ),
+        )
+
+        conn.execute(
+            """
+            INSERT INTO encounter_audit (encounter_id, action, actor, actor_name, timestamp, note)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (
+                encounter_id,
+                f"DECISION_{req.decision}",
+                doctor["sub"],
+                doctor_name,
+                now,
+                req.review_note,
+            ),
+        )
+
+    return {
+        "ok": True,
+        "encounter": _fetch_encounter(encounter_id),
+    }

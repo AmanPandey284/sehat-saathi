@@ -8,6 +8,8 @@ import { buildTimeline, labelField, valueText } from '../features/history/record
 import { savePatientRecord, type StoredPatientRecord } from '../features/doctor/patientRecords';
 import { determineSuggestedRouting } from '../features/routing/routingService';
 import { calculateWorkflowDurations } from '../features/timing/timingUtils';
+import { BASE_URL } from '../services/api';
+import { getAuthorizationHeader, setGuestToken } from '../services/authStorage';
 
 const backgroundLabels: Record<string, string> = {
   pastMedical: 'Past Medical History',
@@ -36,7 +38,7 @@ export default function PatientReview() {
   const updateBg = (key: string, value: string) =>
     s.setBackgroundHistory({ ...s.backgroundHistory, [key as keyof typeof s.backgroundHistory]: value });
 
-  const confirm = () => {
+  const confirm = async () => {
     if (s.patientProfile && s.chiefComplaint) {
       const generatedTimeline = buildTimeline(
         s.chiefComplaint,
@@ -81,6 +83,48 @@ export default function PatientReview() {
         durations,
       };
       savePatientRecord(record);
+
+      // Ensure we have an active auth token (or issue guest session token)
+      let authHeaders = getAuthorizationHeader();
+      if (!authHeaders.Authorization) {
+        try {
+          const guestRes = await fetch(`${BASE_URL}/api/auth/guest-session`, { method: "POST" });
+          if (guestRes.ok) {
+            const guestData = await guestRes.json();
+            setGuestToken(guestData.token);
+            authHeaders = { Authorization: `Bearer ${guestData.token}` };
+          }
+        } catch {}
+      }
+
+      // Persist to backend transactional database
+      try {
+        await fetch(`${BASE_URL}/api/encounters`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            patient_id: s.patientProfile.identifier || undefined,
+            patient_name: s.patientProfile.name || "Anonymous Patient",
+            age: s.patientProfile.age ? parseInt(s.patientProfile.age) : undefined,
+            gender: s.patientProfile.sex,
+            abha_id: s.patientProfile.identifierType === "abha" ? s.patientProfile.identifier : undefined,
+            abdm_consent: s.patientProfile.abdmConsent ?? false,
+            triage_level: s.safetyFlags.length > 0 ? "priority" : "routine",
+            chief_complaint: s.chiefComplaint.displayName,
+            history_present_illness: answers,
+            ayush_intake: s.ayushHistory || {},
+            documents: s.documents || [],
+            vitals: [],
+            lab_results: [],
+            clinical_summary: s.chiefComplaint.originalInput || "",
+          }),
+        });
+      } catch (err) {
+        console.warn("Could not sync encounter to backend; saved locally", err);
+      }
     }
     nav('/patient/complete');
   };

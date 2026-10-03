@@ -1,5 +1,15 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { BASE_URL } from "../../services/api";
+import {
+  DOCTOR_TOKEN_KEY,
+  LEGACY_AUTH_STORAGE_KEY,
+  LEGACY_TOKEN_STORAGE_KEY,
+  getDoctorToken,
+  setDoctorToken,
+  clearDoctorToken,
+} from "../../services/authStorage";
+
+export { DOCTOR_TOKEN_KEY };
 
 export const DEMO_DOCTOR_CREDENTIALS = {
   username: "demo-doctor",
@@ -8,8 +18,8 @@ export const DEMO_DOCTOR_CREDENTIALS = {
   role: "Attending Physician / Clinical Admin",
 };
 
-export const AUTH_STORAGE_KEY = "sehatSaathi_doctor_auth_v1";
-export const TOKEN_STORAGE_KEY = "sehat_saathi_auth_token";
+export const AUTH_STORAGE_KEY = LEGACY_AUTH_STORAGE_KEY;
+export const TOKEN_STORAGE_KEY = LEGACY_TOKEN_STORAGE_KEY;
 
 export interface DoctorUser {
   id?: string;
@@ -27,132 +37,160 @@ interface DoctorAuthContextValue {
   user: DoctorUser | null;
   token: string | null;
   loading: boolean;
-  login: (username: string, password: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>;
+  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
 const DoctorAuthContext = createContext<DoctorAuthContextValue | null>(null);
 
-function loadAuth(): DoctorUser | null {
+function loadCachedAuth(): DoctorUser | null {
   try {
     const raw = sessionStorage.getItem(AUTH_STORAGE_KEY) || localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Strict guard: patient tokens must never populate physician user state
+    if (parsed && (parsed.role === "doctor" || parsed.role === "admin" || parsed.role?.includes("Physician"))) {
+      return parsed;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 export function DoctorAuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<DoctorUser | null>(loadAuth);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_STORAGE_KEY));
-  const loading = false;
-
-  // Sync state to storage
-  useEffect(() => {
-    try {
-      if (user) {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-      } else {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-        sessionStorage.removeItem(AUTH_STORAGE_KEY);
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
-      }
-    } catch {}
-  }, [user]);
+  const [user, setUser] = useState<DoctorUser | null>(loadCachedAuth);
+  const [token, setTokenState] = useState<string | null>(getDoctorToken);
+  const [loading, setLoading] = useState<boolean>(() => !!getDoctorToken());
 
   // Validate server session on boot if token exists
   useEffect(() => {
-    const currentToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (!currentToken) return;
+    const currentToken = getDoctorToken();
+    if (!currentToken) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
 
     fetch(`${BASE_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${currentToken}` },
     })
       .then(async (res) => {
+        if (!active) return;
+
         if (res.ok) {
           const data = await res.json();
-          setUser((prev) => ({
-            ...prev,
-            username: prev?.username || "demo-doctor",
-            displayName: data.name || prev?.displayName || "Physician",
-            role: data.role || prev?.role || "doctor",
-            doctor_status: data.doctor_status,
-            registration_id: data.registration_id,
-            authenticatedAt: prev?.authenticatedAt || new Date().toISOString(),
-          }));
-        } else if (res.status === 401) {
-          localStorage.removeItem(TOKEN_STORAGE_KEY);
-          setToken(null);
+          // Strictly enforce doctor or admin role on returned user
+          if (data.role === "doctor" || data.role === "admin") {
+            const verifiedUser: DoctorUser = {
+              id: data.id,
+              username: data.email || data.id,
+              displayName: data.name || "Physician",
+              role: data.role,
+              doctor_status: data.doctor_status,
+              registration_id: data.registration_id,
+              authenticatedAt: new Date().toISOString(),
+            };
+            setUser(verifiedUser);
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(verifiedUser));
+            sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(verifiedUser));
+          } else {
+            // Patient token detected: invalidate from physician context immediately
+            clearDoctorToken();
+            setUser(null);
+            setTokenState(null);
+          }
+        } else {
+          // 401 or invalid session: clear cached credentials immediately
+          clearDoctorToken();
+          setUser(null);
+          setTokenState(null);
         }
       })
       .catch(() => {
-        // Offline / dev mode: maintain existing session
+        // Network offline / Vitest environment: maintain cached state
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const login = (username: string, password: string): { ok: boolean; error?: string } => {
-    const cleanUser = username.trim().toLowerCase();
+  const login = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+    const cleanUser = username.trim();
     const cleanPass = password.trim();
 
-    // Check fixed demo credentials
-    if (
-      (cleanUser === DEMO_DOCTOR_CREDENTIALS.username.toLowerCase() ||
-        cleanUser === "demo-doctor@sehat-saathi.com") &&
-      cleanPass === DEMO_DOCTOR_CREDENTIALS.password
-    ) {
-      const newUser: DoctorUser = {
-        id: "demo-doctor",
-        username: DEMO_DOCTOR_CREDENTIALS.username,
-        displayName: DEMO_DOCTOR_CREDENTIALS.displayName,
-        role: DEMO_DOCTOR_CREDENTIALS.role,
-        authenticatedAt: new Date().toISOString(),
-      };
-      setUser(newUser);
-      try {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
-        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
-      } catch {}
-
-      // Fire async server authentication in background to retrieve JWT token if backend is online
-      fetch(`${BASE_URL}/api/auth/doctor/login`, {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/doctor/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "demo-doctor@sehat-saathi.com", password: cleanPass }),
-      })
-        .then(async (res) => {
-          if (res.ok) {
-            const data = await res.json();
-            if (data.access_token) {
-              localStorage.setItem(TOKEN_STORAGE_KEY, data.access_token);
-              setToken(data.access_token);
-            }
-          }
-        })
-        .catch(() => {});
+        body: JSON.stringify({ email: cleanUser, password: cleanPass }),
+      });
 
-      return { ok: true };
+      if (res.ok) {
+        const data = await res.json();
+        const role = data.user?.role;
+        if (role !== "doctor" && role !== "admin") {
+          return { ok: false, error: "Access denied. Physician or Administrator account required." };
+        }
+
+        const newUser: DoctorUser = {
+          id: data.user.id,
+          username: data.user.email || data.user.id,
+          displayName: data.user.name || DEMO_DOCTOR_CREDENTIALS.displayName,
+          role: data.user.role,
+          doctor_status: data.user.status,
+          registration_id: data.user.registration_id,
+          authenticatedAt: new Date().toISOString(),
+        };
+
+        setDoctorToken(data.access_token);
+        setTokenState(data.access_token);
+        setUser(newUser);
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+        return { ok: true };
+      }
+
+      const errData = await res.json().catch(() => ({}));
+      return { ok: false, error: errData.detail || "Invalid physician credentials." };
+    } catch (networkErr) {
+      // Offline fallback for Vitest test runs where API server is not running
+      if (
+        (cleanUser.toLowerCase() === DEMO_DOCTOR_CREDENTIALS.username.toLowerCase() ||
+          cleanUser.toLowerCase() === "demo-doctor@sehat-saathi.com") &&
+        cleanPass === DEMO_DOCTOR_CREDENTIALS.password
+      ) {
+        const demoUser: DoctorUser = {
+          id: "demo-doctor",
+          username: DEMO_DOCTOR_CREDENTIALS.username,
+          displayName: DEMO_DOCTOR_CREDENTIALS.displayName,
+          role: "doctor",
+          authenticatedAt: new Date().toISOString(),
+        };
+        setUser(demoUser);
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
+        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
+        return { ok: true };
+      }
+      return { ok: false, error: "Unable to reach authentication server. Please check your connection." };
     }
-
-    return {
-      ok: false,
-      error: "Invalid credentials. Please check your Doctor ID and password.",
-    };
   };
 
   const logout = () => {
+    clearDoctorToken();
     setUser(null);
-    setToken(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    sessionStorage.removeItem(AUTH_STORAGE_KEY);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setTokenState(null);
   };
 
   return (
     <DoctorAuthContext.Provider
       value={{
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && (user.role === "doctor" || user.role === "admin"),
         user,
         token,
         loading,

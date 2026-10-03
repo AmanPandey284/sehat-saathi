@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { ocrDocument, BASE_URL } from "../../services/api";
 import { usePatientSession } from "../patient/state/PatientSessionContext";
+import { getAuthorizationHeader } from "../../services/authStorage";
 
 // ---------------------------------------------------------------------------
 // Fix 4: pre-warm the Render backend before every OCR upload so the
@@ -343,6 +344,12 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [selectedPage, setSelectedPage] = useState(1);
+  const [corrections, setCorrections] = useState<any[]>([]);
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false);
+  const [correctKey, setCorrectKey] = useState("");
+  const [correctVal, setCorrectVal] = useState("");
+  const [correctReason, setCorrectReason] = useState("");
+  const [submittingCorrection, setSubmittingCorrection] = useState(false);
 
   const data = doc.structuredData ?? null;
   const pages: Array<{ page: number; text: string; confidence?: string }> = doc.pages ?? [];
@@ -355,6 +362,65 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
     ? `${BASE_URL}${doc.sourceDocument.downloadUrl}`
     : undefined;
 
+  const storedName = doc.sourceDocument?.storedName;
+
+  const isPdf =
+    doc.type?.toLowerCase() === "pdf" ||
+    doc.mimeType?.includes("pdf") ||
+    doc.sourceDocument?.mimeType?.includes("pdf") ||
+    doc.sourceDocument?.originalName?.toLowerCase().endsWith(".pdf") ||
+    doc.name?.toLowerCase().endsWith(".pdf") ||
+    previewUrl?.toLowerCase().includes(".pdf");
+
+  useEffect(() => {
+    if (!storedName) return;
+    const authHeaders = getAuthorizationHeader();
+    fetch(`${BASE_URL}/api/documents/${storedName}/corrections`, {
+      headers: authHeaders,
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list)) setCorrections(list);
+        }
+      })
+      .catch(() => {});
+  }, [storedName]);
+
+  const handleSaveCorrection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!storedName || !correctKey.trim() || !correctVal.trim()) return;
+
+    setSubmittingCorrection(true);
+    try {
+      const authHeaders = getAuthorizationHeader();
+      const res = await fetch(`${BASE_URL}/api/documents/${storedName}/corrections`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          field_key: correctKey.trim(),
+          original_value: "",
+          corrected_value: correctVal.trim(),
+          reason: correctReason.trim(),
+        }),
+      });
+
+      if (res.ok) {
+        const resData = await res.json();
+        setCorrections((prev) => [...prev, resData.correction]);
+        setShowCorrectionForm(false);
+        setCorrectKey("");
+        setCorrectVal("");
+        setCorrectReason("");
+      }
+    } catch {} finally {
+      setSubmittingCorrection(false);
+    }
+  };
+
   const handleZoomIn = () => setZoom((z) => Math.min(250, z + 25));
   const handleZoomOut = () => setZoom((z) => Math.max(50, z - 25));
   const handleResetZoom = () => { setZoom(100); setRotation(0); };
@@ -366,12 +432,27 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-clinic-100 shadow-xs">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Verification State:</span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 border border-slate-200">
-            📄 DOCUMENT_EXTRACTED
-          </span>
+          {corrections.length > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+              ✏️ USER_CORRECTED ({corrections.length})
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 border border-slate-200">
+              📄 DOCUMENT_EXTRACTED
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          {storedName && (
+            <button
+              type="button"
+              onClick={() => setShowCorrectionForm((v) => !v)}
+              className="rounded-lg border border-clinic-200 bg-clinic-50/70 px-3 py-1.5 text-xs font-semibold text-clinic-700 hover:bg-clinic-100 transition shadow-2xs"
+            >
+              {showCorrectionForm ? "Cancel Correction" : "✏️ Correct Field"}
+            </button>
+          )}
           {downloadUrl && (
             <a
               href={downloadUrl}
@@ -391,6 +472,80 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
           </button>
         </div>
       </div>
+
+      {/* Field Correction Modal / Inline Form */}
+      {showCorrectionForm && (
+        <form onSubmit={handleSaveCorrection} className="rounded-xl border border-clinic-200 bg-white p-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-clinic-700">Submit Clinical Value Correction</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600">Field Name / Key</label>
+              <input
+                type="text"
+                value={correctKey}
+                onChange={(e) => setCorrectKey(e.target.value)}
+                placeholder="e.g. Hemoglobin or Pulse"
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600">Corrected Value</label>
+              <input
+                type="text"
+                value={correctVal}
+                onChange={(e) => setCorrectVal(e.target.value)}
+                placeholder="e.g. 13.8 g/dL"
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-800"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-600">Reason for Correction</label>
+            <input
+              type="text"
+              value={correctReason}
+              onChange={(e) => setCorrectReason(e.target.value)}
+              placeholder="e.g. OCR misread comma as period"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-800"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowCorrectionForm(false)}
+              className="px-3 py-1 rounded text-xs text-slate-600 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submittingCorrection}
+              className="px-3.5 py-1 rounded bg-clinic-600 text-white text-xs font-medium hover:bg-clinic-700 disabled:opacity-50"
+            >
+              {submittingCorrection ? "Saving..." : "Save Correction"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Corrections List */}
+      {corrections.length > 0 && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-800 mb-2">Verified Corrections Audit</p>
+          <div className="space-y-1.5">
+            {corrections.map((c, i) => (
+              <div key={i} className="text-xs text-blue-900 flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{c.field_key}:</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-blue-200 font-mono">{c.corrected_value}</span>
+                {c.reason && <span className="text-slate-500 italic">({c.reason})</span>}
+                <span className="text-[10px] text-slate-400">by {c.author_role || c.author || 'reviewer'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Raw OCR Text */}
       {showRaw && (
@@ -469,7 +624,7 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
 
           {/* Document Preview Frame */}
           <div className="overflow-auto max-h-[500px] flex items-center justify-center bg-slate-900/5 p-4 rounded-lg border border-slate-100">
-            {previewUrl.endsWith(".pdf") ? (
+            {isPdf ? (
               <iframe
                 src={previewUrl}
                 title="PDF Document Preview"

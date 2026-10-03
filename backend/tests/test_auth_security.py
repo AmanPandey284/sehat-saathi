@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.auth import (
-    OTP_CHALLENGES,
     create_token,
     send_otp_challenge,
     verify_otp_challenge,

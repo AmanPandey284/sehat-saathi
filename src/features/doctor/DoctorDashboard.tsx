@@ -4,10 +4,11 @@ import { usePatientSession } from '../patient/state/PatientSessionContext';
 import { buildTimeline, labelField, valueText } from '../history/recordUtils';
 import { buildFhirBundle } from '../history/fhir';
 import { generateClinicalSummary } from '../history/summaryGenerator';
-import { generateSummary } from '../../services/api';
+import { generateSummary, BASE_URL } from '../../services/api';
 import DocumentUpload from '../documents/DocumentUpload';
 import { detectConflicts } from '../history/conflictEngine';
 import { useDoctorAuth } from '../auth/DoctorAuthContext';
+import { getDoctorToken } from '../../services/authStorage';
 import {
   getStoredPatientRecords,
   updatePatientRecord,
@@ -63,6 +64,76 @@ export default function DoctorDashboard() {
   // Refresh records on mount and when selectedRecordId changes
   useEffect(() => {
     setRecords(getStoredPatientRecords());
+
+    const token = getDoctorToken();
+    if (!token) return;
+
+    fetch(`${BASE_URL}/api/encounters`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const apiEncounters = await res.json();
+          if (Array.isArray(apiEncounters) && apiEncounters.length > 0) {
+            setRecords((prev) => {
+              const existingIds = new Set(prev.map((r) => r.id));
+              const newRecords: StoredPatientRecord[] = [];
+              for (const enc of apiEncounters) {
+                if (!existingIds.has(enc.id)) {
+                  newRecords.push({
+                    id: enc.id,
+                    submittedAt: new Date(enc.created_at * 1000).toISOString(),
+                    patientProfile: {
+                      name: enc.patient_name || "Patient",
+                      age: enc.age ? String(enc.age) : "30",
+                      sex: enc.gender || "Unknown",
+                      identifier: enc.abha_id || enc.patient_id || "ID",
+                      identifierType: (enc.abha_id ? "abha" : "demo") as "demo" | "abha",
+                      language: "en",
+                    },
+                    chiefComplaint: {
+                      complaintId: "custom" as any,
+                      displayName: enc.chief_complaint || "Patient Reported",
+                      originalInput: enc.clinical_summary || enc.chief_complaint || "",
+                      confidence: 1.0,
+                      source: "patient",
+                    },
+                    historyAnswers: enc.history_present_illness || {},
+                    evidence: [],
+                    safetyFlags: enc.triage_level === "priority" ? [{
+                      id: "triage-priority",
+                      severity: "urgent" as const,
+                      title: "Priority Triage",
+                      explanation: "Priority flag from clinical intake",
+                      field: "triage",
+                      triggeredAt: new Date(enc.created_at * 1000).toISOString(),
+                    }] : [],
+                    documents: enc.documents || [],
+                    backgroundHistory: {
+                      pastMedical: "",
+                      pastSurgical: "",
+                      medications: "",
+                      allergies: "",
+                      family: "",
+                      personal: "",
+                      reviewOfSystems: "",
+                    },
+                    timeline: [],
+                    doctorReviews: [],
+                    ayushHistory: enc.ayush_intake || {},
+                    reviewStatus: (enc.physician_decision ? "reviewed" : "pending") as "pending" | "reviewed",
+                    physicianDecision: enc.physician_decision === "CONFIRMED_AND_SIGNED" ? "confirmed" : enc.physician_decision === "CLARIFICATION_REQUESTED" ? "clarification" : enc.physician_decision === "FLAGGED_HIGH_RISK" ? "flagged" : undefined,
+                    physicianReviewNote: enc.physician_review_note,
+                    physicianDecisionBy: enc.physician_signed_by,
+                  });
+                }
+              }
+              return [...newRecords, ...prev];
+            });
+          }
+        }
+      })
+      .catch(() => {});
   }, [selectedRecordId]);
 
   const activeRecord = useMemo(() => {
@@ -392,6 +463,29 @@ export default function DoctorDashboard() {
       durations: calculateWorkflowDurations(updatedTimestamps),
     });
     setRecords(getStoredPatientRecords());
+
+    // Dispatch to backend API
+    const token = getDoctorToken();
+    if (token) {
+      const apiDecision =
+        decision === 'confirmed'
+          ? 'CONFIRMED_AND_SIGNED'
+          : decision === 'clarification'
+          ? 'CLARIFICATION_REQUESTED'
+          : 'FLAGGED_HIGH_RISK';
+
+      fetch(`${BASE_URL}/api/encounters/${activeRecord.id}/signoff`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          decision: apiDecision,
+          review_note: reviewNoteInput.trim(),
+        }),
+      }).catch(() => {});
+    }
   };
 
   const handleLogout = () => {

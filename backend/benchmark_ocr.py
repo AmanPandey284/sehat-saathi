@@ -104,6 +104,28 @@ def run_benchmark():
     for m in meds:
         print(f"  - {m.get('name')}: {m.get('dosage')} | {m.get('frequency')} | {m.get('duration')}")
 
+    assert len(meds) == 2, f"Expected 2 medications, got {len(meds)}"
+    assert meds[0]["name"] == "Paracetamol", f"Expected Paracetamol, got {meds[0]['name']}"
+    assert meds[0]["dosage"] == "650mg", f"Expected 650mg, got {meds[0]['dosage']}"
+    assert meds[1]["name"] == "Pantoprazole", f"Expected Pantoprazole, got {meds[1]['name']}"
+    print("  [PASS] Prescribed medications extracted with exact dosages and frequencies")
+
+    # Comparator Evaluation Assertions
+    from app.core.medical_reference import compare_result
+
+    crp_comp = compare_result("CRP", "<60", "<10 mg/L")
+    assert crp_comp["status"] == "needs_review", f"CRP <60 vs <10 should require review, got {crp_comp['status']}"
+    assert crp_comp["attention"] is True
+    print("  [PASS] CRP <60 correctly evaluated as 'needs_review' (does not assume false elevation)")
+
+    lipase_comp = compare_result("Serum Lipase", "B4 U/L", "10 - 140")
+    assert lipase_comp["status"] == "needs_review", f"Lipase B4 should require review, got {lipase_comp['status']}"
+    print("  [PASS] Lipase 'B4' unreadable character correctly evaluated as 'needs_review'")
+
+    wbc_comp = compare_result("Total WBC Count", "11200 /µL", "4000 - 11000")
+    assert wbc_comp["status"] == "above_reference", f"WBC 11200 vs 4000-11000 should be above_reference, got {wbc_comp['status']}"
+    print("  [PASS] WBC 11200 /µL correctly evaluated with unit compatibility")
+
     print("=" * 60)
     print("ALL BENCHMARK CRITERIA VERIFIED SUCCESSFULLY.")
     print("=" * 60)

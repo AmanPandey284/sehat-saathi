@@ -104,8 +104,7 @@ async def send_otp(request: SendOtpRequest) -> dict[str, Any]:
 @router.post("/otp/verify")
 def verify_otp(request: VerifyOtpRequest) -> dict[str, Any]:
     res = verify_otp_challenge(
-        challenge_id=request.challenge_id,
-        recipient=request.recipient,
+        target=request.recipient,
         code=request.code,
     )
     if not res.get("ok"):
@@ -134,23 +133,15 @@ async def patient_legacy_send_otp(req: PatientLegacySendRequest) -> dict[str, An
     }
 
 
+@router.post("/guest-session")
+def issue_guest_session() -> dict[str, Any]:
+    from app.core.auth import create_guest_session
+    return create_guest_session()
+
+
 @router.post("/patient/verify-otp")
 def patient_legacy_verify_otp(req: PatientLegacyVerifyRequest) -> dict[str, Any]:
-    # Search for active challenge by recipient
-    from app.core.auth import OTP_CHALLENGES
-    challenge_id = None
-    for cid, r in OTP_CHALLENGES.items():
-        if r["recipient"] == req.mobile.strip().lower():
-            challenge_id = cid
-            break
-
-    if not challenge_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active OTP challenge for this mobile number.",
-        )
-
-    res = verify_otp_challenge(challenge_id=challenge_id, recipient=req.mobile, code=req.otp)
+    res = verify_otp_challenge(target=req.mobile, code=req.otp)
     if not res.get("ok"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

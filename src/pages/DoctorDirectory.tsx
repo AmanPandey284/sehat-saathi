@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import { useLanguage } from "../i18n/LanguageContext";
+import { BASE_URL } from "../services/api";
 
 export interface DoctorProfile {
   id: string;
@@ -83,10 +84,48 @@ export default function DoctorDirectory() {
   const { language } = useLanguage();
   const navigate = useNavigate();
 
+  const [doctorsList, setDoctorsList] = useState<DoctorProfile[]>(DOCTORS_DIRECTORY);
   const [systemFilter, setSystemFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const filteredDoctors = DOCTORS_DIRECTORY.filter((doc) => {
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBackendDoctors() {
+      try {
+        const res = await fetch(`${BASE_URL}/doctors`);
+        if (res.ok) {
+          const apiDocs = await res.json();
+          if (Array.isArray(apiDocs) && apiDocs.length > 0 && !cancelled) {
+            const mapped: DoctorProfile[] = apiDocs.map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              department: d.specialty || "General Medicine",
+              medicalSystem: (d.medical_system === "Ayurveda" ? "Ayurveda" : "Allopathy") as "Allopathy" | "Ayurveda",
+              qualifications: d.registration_id ? `Reg: ${d.registration_id} (${d.council_name || 'Medical Council'})` : "Registered Medical Practitioner",
+              languages: ["Hindi", "English"],
+              experienceYears: d.years_of_experience || 5,
+              availableDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+              timing: "09:00 AM - 01:00 PM",
+              room: d.hospital_name || "OPD Room 104",
+            }));
+            
+            // Merge keeping unique IDs
+            const existingIds = new Set(mapped.map((m) => m.id));
+            const combined = [...mapped, ...DOCTORS_DIRECTORY.filter((d) => !existingIds.has(d.id))];
+            setDoctorsList(combined);
+          }
+        }
+      } catch {
+        // Fallback gracefully to default catalog
+      }
+    }
+    loadBackendDoctors();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredDoctors = doctorsList.filter((doc) => {
     const matchesSystem = systemFilter === "all" || doc.medicalSystem === systemFilter;
     const matchesQuery =
       doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

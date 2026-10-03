@@ -14,6 +14,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
 from app.core.config import settings
+from app.core.db import get_db, hash_password, init_db, transaction, verify_password
+
+# Ensure database and schemas are initialized
+init_db()
 
 security = HTTPBearer(auto_error=False)
 
@@ -105,20 +109,40 @@ def get_current_user(
             detail="Authorization credentials required",
         )
     user = verify_token(credentials.credentials)
+    user_id = user.get("sub", "")
+    role = user.get("role", "")
 
-    # Server-side active validation for registered doctor accounts
-    if user.get("role") == "doctor":
-        doc = get_doctor_by_id(user.get("sub", ""))
+    # Server-side active validation for registered doctor and admin accounts
+    if role == "doctor":
+        doc = get_doctor_by_id(user_id)
         if not doc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account no longer exists",
+                detail="Doctor account no longer exists",
             )
         if doc.get("status") != "approved":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Physician account status is not approved",
             )
+        user["name"] = doc.get("name")
+        user["specialty"] = doc.get("specialty")
+        user["medical_system"] = doc.get("medical_system")
+        user["registration_id"] = doc.get("registration_id")
+
+    elif role == "admin":
+        admin = get_account_by_id(user_id)
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Administrator account no longer exists",
+            )
+        if admin.get("status") != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrator account status is not active",
+            )
+        user["name"] = admin.get("name")
 
     return user
 
@@ -134,126 +158,56 @@ def require_admin(
     return current_user
 
 
+def require_doctor_or_admin(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    if current_user.get("role") not in ("doctor", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Physician or Administrator access required for this operation",
+        )
+    return current_user
+
+
+def create_guest_session() -> dict[str, Any]:
+    guest_id = f"guest-{secrets.token_hex(8)}"
+    token = create_token(
+        user_id=guest_id,
+        role="guest",
+        extra={"session_type": "guest_intake"},
+    )
+    return {
+        "ok": True,
+        "guest_id": guest_id,
+        "token": token,
+        "role": "guest",
+        "expires_in_minutes": settings.access_token_expire_minutes,
+    }
+
+
+
+
 # ---------------------------------------------------------
-# Password Hashing Engine (PBKDF2-SHA256 with 200,000 rounds)
+# Transactional Account Management
 # ---------------------------------------------------------
 
-def hash_password(password: str, salt: str | None = None) -> str:
-    if not salt:
-        salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000)
-    return f"{salt}${dk.hex()}"
-
-
-def verify_password(plain_password: str, stored_hash: str) -> bool:
-    if not stored_hash or "$" not in stored_hash:
-        return False
-    salt, expected = stored_hash.split("$", 1)
-    dk = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt.encode("utf-8"), 200_000)
-    return hmac.compare_digest(dk.hex(), expected)
-
-
-# ---------------------------------------------------------
-# Durable Accounts & Application Store
-# ---------------------------------------------------------
-
-DATA_PATH = Path(settings.data_dir)
-ACCOUNTS_FILE = DATA_PATH / "doctor_accounts.json"
-
-DEFAULT_SEED_ACCOUNTS = [
-    {
-        "id": "admin-001",
-        "email": "admin@sehat-saathi.com",
-        "password_hash": hash_password("Admin@Sehat2026!"),
-        "name": "System Administrator",
-        "role": "admin",
-        "status": "approved",
-        "created_at": 1727900000,
-    },
-    {
-        "id": "demo-doctor",
-        "email": "demo-doctor@sehat-saathi.com",
-        "password_hash": hash_password("demo123"),
-        "registration_id": "DEMO-REG-001",
-        "name": "Dr. Sharma (MD, Clinical Lead)",
-        "role": "doctor",
-        "medical_system": "Allopathy",
-        "specialty": "Emergency & Internal Medicine",
-        "council_name": "Medical Council of India",
-        "status": "approved",
-        "created_at": 1727900000,
-    },
-    {
-        "id": "doctor-001",
-        "email": "doctor1@sehat-saathi.com",
-        "password_hash": hash_password("Doctor@123"),
-        "registration_id": "REG001",
-        "name": "Dr. Ramesh Sharma",
-        "role": "doctor",
-        "medical_system": "Allopathy",
-        "specialty": "General Medicine",
-        "council_name": "Delhi Medical Council",
-        "status": "approved",
-        "created_at": 1727900000,
-    },
-    {
-        "id": "doctor-002",
-        "email": "doctor2@sehat-saathi.com",
-        "password_hash": hash_password("Doctor@123"),
-        "registration_id": "REG002",
-        "name": "Dr. Priya Patel",
-        "role": "doctor",
-        "medical_system": "Ayurveda",
-        "specialty": "Kayachikitsa (Internal Medicine)",
-        "council_name": "Central Council of Indian Medicine",
-        "status": "approved",
-        "created_at": 1727900000,
-    },
-]
-
-_ACCOUNTS_CACHE: list[dict[str, Any]] | None = None
-
-
-def _load_accounts() -> list[dict[str, Any]]:
-    global _ACCOUNTS_CACHE
-    if _ACCOUNTS_CACHE is not None:
-        return _ACCOUNTS_CACHE
-
-    DATA_PATH.mkdir(parents=True, exist_ok=True)
-    if ACCOUNTS_FILE.exists():
-        try:
-            with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-                _ACCOUNTS_CACHE = json.load(f)
-                return _ACCOUNTS_CACHE
-        except Exception:
-            pass
-
-    _ACCOUNTS_CACHE = list(DEFAULT_SEED_ACCOUNTS)
-    _save_accounts(_ACCOUNTS_CACHE)
-    return _ACCOUNTS_CACHE
-
-
-def _save_accounts(accounts: list[dict[str, Any]]) -> None:
-    DATA_PATH.mkdir(parents=True, exist_ok=True)
-    with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(accounts, f, indent=2)
+def get_account_by_id(user_id: str) -> dict[str, Any] | None:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE id = ?;", (user_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def get_doctor_by_id(user_id: str) -> dict[str, Any] | None:
-    accounts = _load_accounts()
-    for acc in accounts:
-        if acc["id"] == user_id:
-            return acc
-    return None
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE id = ? AND role = 'doctor';", (user_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def get_account_by_email(email: str) -> dict[str, Any] | None:
     clean_email = email.strip().lower()
-    accounts = _load_accounts()
-    for acc in accounts:
-        if acc["email"].lower() == clean_email:
-            return acc
-    return None
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE LOWER(email) = ?;", (clean_email,)).fetchone()
+        return dict(row) if row else None
 
 
 def authenticate_doctor(
@@ -262,18 +216,23 @@ def authenticate_doctor(
     registration_id: str | None = None,
 ) -> dict[str, Any] | None:
     clean_email = email.strip().lower()
-    accounts = _load_accounts()
-    for doc in accounts:
-        if (
-            doc["email"].lower() == clean_email
-            or doc["id"].lower() == clean_email
-        ):
-            if not verify_password(password, doc.get("password_hash", "")):
-                continue
-            if registration_id and doc.get("registration_id") != registration_id:
-                continue
-            return doc
-    return None
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE (LOWER(email) = ? OR LOWER(id) = ?) AND role IN ('doctor', 'admin');",
+            (clean_email, clean_email),
+        ).fetchone()
+
+        if not row:
+            return None
+
+        acc = dict(row)
+        if not verify_password(password, acc.get("password_hash", "")):
+            return None
+
+        if registration_id and acc.get("registration_id") != registration_id:
+            return None
+
+        return acc
 
 
 def register_doctor_application(
@@ -288,42 +247,67 @@ def register_doctor_application(
     hospital_name: str = "",
 ) -> dict[str, Any]:
     clean_email = email.strip().lower()
-    accounts = _load_accounts()
-    for doc in accounts:
-        if doc["email"].lower() == clean_email:
+    now = int(time.time())
+    with transaction() as conn:
+        existing = conn.execute("SELECT id FROM accounts WHERE LOWER(email) = ?;", (clean_email,)).fetchone()
+        if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="A physician account with this email address already exists.",
             )
 
-    doc_id = f"doc-{secrets.token_hex(4)}"
-    new_doc = {
-        "id": doc_id,
-        "name": name.strip(),
-        "email": clean_email,
-        "password_hash": hash_password(password),
-        "role": "doctor",
-        "medical_system": medical_system.strip(),
-        "specialty": specialty.strip(),
-        "registration_id": registration_number.strip(),
-        "council_name": council_name.strip(),
-        "years_of_experience": years_of_experience,
-        "hospital_name": hospital_name.strip(),
-        "status": "PENDING_REVIEW",
-        "applied_at": int(time.time()),
-    }
-    accounts.append(new_doc)
-    _save_accounts(accounts)
-    return {k: v for k, v in new_doc.items() if k != "password_hash"}
+        doc_id = f"doc-{secrets.token_hex(4)}"
+        pwd_hash = hash_password(password)
+
+        conn.execute(
+            """
+            INSERT INTO accounts (
+                id, email, password_hash, name, role, status,
+                medical_system, specialty, registration_id, council_name,
+                years_of_experience, hospital_name, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                doc_id,
+                clean_email,
+                pwd_hash,
+                name.strip(),
+                "doctor",
+                "PENDING_REVIEW",
+                medical_system.strip(),
+                specialty.strip(),
+                registration_number.strip(),
+                council_name.strip(),
+                years_of_experience,
+                hospital_name.strip(),
+                now,
+                now,
+            ),
+        )
+
+        row = conn.execute("SELECT * FROM accounts WHERE id = ?;", (doc_id,)).fetchone()
+        res = dict(row)
+        res.pop("password_hash", None)
+        return res
 
 
 def list_doctor_applications() -> list[dict[str, Any]]:
-    accounts = _load_accounts()
-    return [
-        {k: v for k, v in doc.items() if k != "password_hash"}
-        for doc in accounts
-        if doc.get("role") == "doctor"
-    ]
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM accounts WHERE role = 'doctor' ORDER BY created_at DESC;").fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d.pop("password_hash", None)
+            result.append(d)
+        return result
+
+
+def list_approved_doctors() -> list[dict[str, Any]]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, email, medical_system, specialty, registration_id, council_name, years_of_experience, hospital_name FROM accounts WHERE role = 'doctor' AND status = 'approved' ORDER BY name ASC;"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def verify_doctor_application(
@@ -332,34 +316,38 @@ def verify_doctor_application(
     reason: str = "",
     reviewer_id: str = "admin",
 ) -> dict[str, Any]:
-    accounts = _load_accounts()
-    for doc in accounts:
-        if doc["id"] == doctor_id:
-            new_status = (
-                "approved" if action == "approve"
-                else "rejected" if action == "reject"
-                else "needs_correction"
-            )
-            doc["status"] = new_status
-            doc["reviewed_by"] = reviewer_id
-            doc["reviewed_at"] = int(time.time())
-            doc["review_reason"] = reason
-            _save_accounts(accounts)
-            return {k: v for k, v in doc.items() if k != "password_hash"}
-
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Physician application {doctor_id} not found.",
+    new_status = (
+        "approved" if action == "approve"
+        else "rejected" if action == "reject"
+        else "needs_correction"
     )
+    now = int(time.time())
+
+    with transaction() as conn:
+        existing = conn.execute("SELECT * FROM accounts WHERE id = ? AND role = 'doctor';", (doctor_id,)).fetchone()
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Physician application {doctor_id} not found.",
+            )
+
+        conn.execute(
+            "UPDATE accounts SET status = ?, updated_at = ? WHERE id = ?;",
+            (new_status, now, doctor_id),
+        )
+
+        row = conn.execute("SELECT * FROM accounts WHERE id = ?;", (doctor_id,)).fetchone()
+        res = dict(row)
+        res.pop("password_hash", None)
+        res["reviewed_by"] = reviewer_id
+        res["reviewed_at"] = now
+        res["review_reason"] = reason
+        return res
 
 
 # ---------------------------------------------------------
-# Cryptographically Secure OTP Engine
+# Cryptographically Secure Durable OTP Engine
 # ---------------------------------------------------------
-
-OTP_CHALLENGES: dict[str, dict[str, Any]] = {}
-RECIPIENT_RATE_LIMITS: dict[str, list[float]] = {}
-
 
 def _hash_otp(code: str, salt: str) -> str:
     key = (settings.effective_otp_secret + salt).encode("utf-8")
@@ -374,36 +362,29 @@ async def send_otp_challenge(
     clean_recipient = recipient.strip().lower()
     now = int(time.time())
 
-    # Rate limiting: max 5 requests per recipient per 10 minutes
-    timestamps = RECIPIENT_RATE_LIMITS.setdefault(clean_recipient, [])
-    timestamps = [t for t in timestamps if now - t < 600]
-    RECIPIENT_RATE_LIMITS[clean_recipient] = timestamps
-    if len(timestamps) >= 5:
-        return {
-            "ok": False,
-            "error": "Rate limit exceeded. Please wait 10 minutes before requesting a new code.",
-            "delivery_mode": "rate_limited",
-        }
-
-    # Check active challenge for rate limit / cooldown
-    prior_cooldown = 0
-    for cid, rec in list(OTP_CHALLENGES.items()):
-        if rec["recipient"] == clean_recipient:
+    # Rate limiting & cooldown checked durably in database
+    with transaction() as conn:
+        # Check active challenge
+        row = conn.execute("SELECT * FROM otp_challenges WHERE target = ?;", (clean_recipient,)).fetchone()
+        if row:
+            rec = dict(row)
             if rec["expires_at"] < now:
-                del OTP_CHALLENGES[cid]
+                conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_recipient,))
             elif rec["cooldown_until"] > now:
                 remaining = rec["cooldown_until"] - now
                 return {
                     "ok": False,
-                    "challenge_id": cid,
                     "error": f"Please wait {remaining} seconds before requesting a new code.",
                     "cooldown_remaining": remaining,
                     "delivery_mode": "rate_limited",
                 }
-            else:
-                # Invalidate existing challenge on resend, but maintain record of abuse
-                prior_cooldown = rec.get("attempts", 0)
-                del OTP_CHALLENGES[cid]
+            elif rec["attempts"] >= settings.otp_max_attempts:
+                # Still within window with max attempts
+                return {
+                    "ok": False,
+                    "error": "Rate limit exceeded. Please wait for the current code to expire before requesting a new one.",
+                    "delivery_mode": "rate_limited",
+                }
 
     # Verification channel validation
     if channel != "email":
@@ -421,23 +402,27 @@ async def send_otp_challenge(
             "delivery_mode": "unavailable",
         }
 
-    challenge_id = secrets.token_hex(16)
     code = f"{secrets.randbelow(900000) + 100000:06d}"
     salt = secrets.token_hex(8)
     code_hash = _hash_otp(code, salt)
+    stored_hash = f"{salt}${code_hash}"
 
-    OTP_CHALLENGES[challenge_id] = {
-        "recipient": clean_recipient,
-        "code_hash": code_hash,
-        "salt": salt,
-        "created_at": now,
-        "expires_at": now + settings.otp_expire_seconds,
-        "cooldown_until": now + settings.otp_cooldown_seconds,
-        "attempts": prior_cooldown,  # Carry over attempt count on resend
-        "purpose": purpose,
-        "channel": channel,
-    }
-    timestamps.append(now)
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO otp_challenges (
+                target, otp_hash, attempts, expires_at, created_at, cooldown_until
+            ) VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (
+                clean_recipient,
+                stored_hash,
+                0,
+                now + settings.otp_expire_seconds,
+                now,
+                now + settings.otp_cooldown_seconds,
+            ),
+        )
 
     delivery_mode = "simulated"
     sent_successfully = False
@@ -472,7 +457,8 @@ async def send_otp_challenge(
                 else:
                     if not settings.is_simulation_permitted:
                         # Fail closed in production
-                        del OTP_CHALLENGES[challenge_id]
+                        with transaction() as conn:
+                            conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_recipient,))
                         return {
                             "ok": False,
                             "error": "Failed to dispatch verification email via provider.",
@@ -482,7 +468,8 @@ async def send_otp_challenge(
                     sent_successfully = True
         except Exception:
             if not settings.is_simulation_permitted:
-                del OTP_CHALLENGES[challenge_id]
+                with transaction() as conn:
+                    conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_recipient,))
                 return {
                     "ok": False,
                     "error": "Delivery provider connection error.",
@@ -494,8 +481,8 @@ async def send_otp_challenge(
         delivery_mode = "simulated"
         sent_successfully = True
     else:
-        # Production without Resend
-        del OTP_CHALLENGES[challenge_id]
+        with transaction() as conn:
+            conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_recipient,))
         return {
             "ok": False,
             "error": "Delivery service unconfigured.",
@@ -504,7 +491,8 @@ async def send_otp_challenge(
 
     response = {
         "ok": sent_successfully,
-        "challenge_id": challenge_id,
+        "challenge_id": clean_recipient,
+        "target": clean_recipient,
         "expires_in_seconds": settings.otp_expire_seconds,
         "cooldown_seconds": settings.otp_cooldown_seconds,
         "delivery_mode": delivery_mode,
@@ -519,48 +507,65 @@ async def send_otp_challenge(
 
 
 def verify_otp_challenge(
-    challenge_id: str,
-    recipient: str,
-    code: str,
+    target_or_cid: str = "",
+    code_or_recipient: str = "",
+    code_if_three: str | None = None,
+    target: str | None = None,
+    code: str | None = None,
 ) -> dict[str, Any]:
+    if code_if_three is not None:
+        cid = target_or_cid.strip().lower()
+        actual_target = code_or_recipient.strip().lower()
+        actual_code = code_if_three.strip()
+        if cid != actual_target:
+            return {"ok": False, "error": "Recipient mismatch for verification session."}
+    elif target is not None and code is not None:
+        actual_target = target.strip().lower()
+        actual_code = code.strip()
+    else:
+        actual_target = target_or_cid.strip().lower()
+        actual_code = code_or_recipient.strip()
+
+    clean_target = actual_target
     now = int(time.time())
-    record = OTP_CHALLENGES.get(challenge_id)
 
-    if not record:
-        return {"ok": False, "error": "Invalid or expired verification session."}
+    with transaction() as conn:
+        row = conn.execute("SELECT * FROM otp_challenges WHERE target = ?;", (clean_target,)).fetchone()
+        if not row:
+            return {"ok": False, "error": "Invalid or expired verification session."}
 
-    if record["recipient"] != recipient.strip().lower():
-        return {"ok": False, "error": "Verification recipient mismatch."}
+        rec = dict(row)
+        if rec["expires_at"] < now:
+            conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_target,))
+            return {"ok": False, "error": "Verification code has expired. Please request a new one."}
 
-    if record["expires_at"] < now:
-        del OTP_CHALLENGES[challenge_id]
-        return {"ok": False, "error": "Verification code has expired. Please request a new one."}
+        if rec["attempts"] >= settings.otp_max_attempts:
+            conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_target,))
+            return {
+                "ok": False,
+                "error": "Maximum verification attempts exceeded. Please request a new code.",
+            }
 
-    if record["attempts"] >= settings.otp_max_attempts:
-        del OTP_CHALLENGES[challenge_id]
-        return {
-            "ok": False,
-            "error": "Maximum verification attempts exceeded. Please request a new code.",
-        }
+        stored_hash = rec["otp_hash"]
+        salt, expected_hash = stored_hash.split("$", 1)
+        actual_hash = _hash_otp(actual_code.strip(), salt)
 
-    record["attempts"] += 1
-    expected_hash = _hash_otp(code.strip(), record["salt"])
+        if not hmac.compare_digest(actual_hash, expected_hash):
+            new_attempts = rec["attempts"] + 1
+            conn.execute("UPDATE otp_challenges SET attempts = ? WHERE target = ?;", (new_attempts, clean_target))
+            remaining = settings.otp_max_attempts - new_attempts
+            return {
+                "ok": False,
+                "error": f"Incorrect verification code. {remaining} attempt(s) remaining.",
+            }
 
-    if not hmac.compare_digest(expected_hash, record["code_hash"]):
-        remaining = settings.otp_max_attempts - record["attempts"]
-        return {
-            "ok": False,
-            "error": f"Incorrect verification code. {remaining} attempt(s) remaining.",
-        }
-
-    # Atomic single-use consumption on success
-    purpose = record["purpose"]
-    del OTP_CHALLENGES[challenge_id]
+        # Atomic single-use consumption on success
+        conn.execute("DELETE FROM otp_challenges WHERE target = ?;", (clean_target,))
 
     session_token = create_token(
-        user_id=recipient,
+        user_id=clean_target,
         role="patient",
-        extra={"verified": True, "purpose": purpose},
+        extra={"verified": True, "purpose": "login"},
     )
 
     return {

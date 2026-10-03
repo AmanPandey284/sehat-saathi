@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import io
 import json
+import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 import httpx
 
 from app.core.config import settings
-from app.core.auth import security, verify_token
+from app.core.auth import get_current_user
+from app.core.db import transaction
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -18,7 +21,7 @@ class SummaryRequest(BaseModel):
     history: dict[str, Any] = Field(default_factory=dict)
     documents: list[dict[str, Any]] = Field(default_factory=list)
     complaint: dict[str, Any] | None = None
-    consent_obtained: bool = Field(default=True, description="Patient consent for AI summarization processing")
+    consent_obtained: bool = Field(default=False, description="Patient consent for external AI processing (strictly False by default)")
 
 
 def deterministic_summary(req: SummaryRequest) -> str:
@@ -47,16 +50,42 @@ def deterministic_summary(req: SummaryRequest) -> str:
 
 
 @router.post("/summary")
-async def create_summary(req: SummaryRequest) -> dict[str, Any]:
+@router.post("/summarize")
+async def create_summary(
+    req: SummaryRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
     api_key = settings.openai_api_key
     model = settings.openai_text_model
 
-    # If no key configured, return deterministic summary with honest provider label
+    # Privacy gate: strictly require explicit external processing consent
+    if not req.consent_obtained:
+        return {
+            "summary": deterministic_summary(req),
+            "provider": "deterministic-evidence-template",
+            "model": "rule-based-local",
+            "consent_applied": False,
+            "fallback_used": True,
+            "fallback_reason": "External AI processing consent not granted; local deterministic clinical template used.",
+        }
+
+    now = int(time.time())
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_consents (user_id, consent_type, granted, timestamp)
+            VALUES (?, ?, ?, ?);
+            """,
+            (user["sub"], "external_ai_summarization", 1, now),
+        )
+
+    # If no external API key configured, use deterministic template
     if not api_key:
         return {
             "summary": deterministic_summary(req),
             "provider": "deterministic-evidence-template",
             "model": "rule-based-local",
+            "consent_applied": True,
             "fallback_used": False,
         }
 
@@ -83,7 +112,6 @@ async def create_summary(req: SummaryRequest) -> dict[str, Any]:
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.1,
-                    # Request zero retention where permitted by API tier
                     "store": False,
                 },
             )
@@ -97,23 +125,90 @@ async def create_summary(req: SummaryRequest) -> dict[str, Any]:
                     "summary": text,
                     "provider": "openai",
                     "model": model,
+                    "consent_applied": True,
                     "fallback_used": False,
                 }
+    except Exception as exc:
+        print(f"[AI summary fallback] {exc}")
 
-        # If API returned non-200 or empty choices
+    return {
+        "summary": deterministic_summary(req),
+        "provider": "deterministic-fallback",
+        "model": "rule-based-local",
+        "consent_applied": True,
+        "fallback_used": True,
+        "fallback_reason": "External AI provider unavailable; defaulted to local clinical template.",
+    }
+
+
+@router.post("/transcribe")
+async def transcribe_voice(
+    file: UploadFile = File(...),
+    consent_obtained: bool = Form(default=False),
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    Authenticated, consent-gated audio transcription endpoint.
+    If external consent is not granted or external provider is unavailable,
+    returns empty transcript with failure notice. NEVER injects canned symptoms.
+    """
+    if not consent_obtained:
         return {
-            "summary": deterministic_summary(req),
-            "provider": "deterministic-fallback",
-            "model": "rule-based-local",
-            "fallback_used": True,
-            "error_detail": f"OpenAI HTTP status {resp.status_code}",
+            "ok": False,
+            "transcript": "",
+            "error": "External AI transcription consent not granted. Please dictate with speech recognition or type symptoms manually.",
         }
 
-    except Exception as exc:
+    if not settings.openai_api_key:
         return {
-            "summary": deterministic_summary(req),
-            "provider": "deterministic-fallback",
-            "model": "rule-based-local",
-            "fallback_used": True,
-            "error_detail": str(exc),
+            "ok": False,
+            "transcript": "",
+            "error": "Automated voice transcription service unconfigured. Please type your symptoms manually.",
+        }
+
+    audio_bytes = await file.read()
+    if len(audio_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio file exceeds 25 MB limit.",
+        )
+
+    try:
+        files = {
+            "file": (file.filename or "recording.webm", audio_bytes, file.content_type or "audio/webm"),
+        }
+        data = {
+            "model": "whisper-1",
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                },
+                files=files,
+                data=data,
+            )
+
+        if resp.status_code == 200:
+            result = resp.json()
+            transcript_text = result.get("text", "").strip()
+            return {
+                "ok": True,
+                "transcript": transcript_text,
+                "provider": "openai_whisper",
+            }
+        else:
+            return {
+                "ok": False,
+                "transcript": "",
+                "error": f"Transcription provider error ({resp.status_code}). Please enter symptoms manually.",
+            }
+    except Exception as exc:
+        print(f"[Transcription error] {exc}")
+        return {
+            "ok": False,
+            "transcript": "",
+            "error": "Transcription connection failed. Please enter symptoms manually.",
         }

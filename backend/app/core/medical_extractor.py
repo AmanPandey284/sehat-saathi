@@ -542,22 +542,41 @@ def strip_med_prefix(value: str) -> str:
 
 
 def extract_medications(lines: list[str]) -> list[dict[str, Any]]:
-    start = next((i for i, line in enumerate(lines) if re.search(r"\bPrescription\b", line, flags=re.I)), None)
+    start = next((i for i, line in enumerate(lines) if re.search(r"^\s*(?:Prescription|Medications?|Medicines?|Rx|Treatment|Advised Medications?)\b", line, flags=re.I)), None)
     if start is None:
         return []
-    end = next((i for i in range(start + 1, len(lines)) if re.search(r"Advice\s*&?\s*Lifestyle\s*Recommendations", lines[i], flags=re.I)), len(lines))
+    end = next((i for i in range(start + 1, len(lines)) if re.search(r"\b(?:Advice|Lifestyle\s*Recommendations|Follow\s*up|Investigations?|Doctor|Signature)\b", lines[i], flags=re.I)), len(lines))
     block = lines[start:end]
 
     results: list[dict[str, Any]] = []
     for line in block:
+        clean_line = line.strip()
+        if not clean_line or re.search(r"^(?:Prescription|Medications?|Medicines?|Rx|Treatment):?$", clean_line, flags=re.I):
+            continue
+
+        # Check numbered/bulleted single-line prescription format
+        m_line = re.match(
+            r"^(?:\d+[\.\)]|\•|\-)?\s*(?:(?:tab(?:let)?|cap(?:sule)?|syrup|syp|inj(?:ection)?)\s+)?([A-Za-z0-9\s\-]+?)\s+(\d+(?:\.\d+)?\s*(?:mg|g|ml|mcg|iu|%))\s+([A-Za-z0-9\s]+?)(?:\s+(?:x|for)\s+([A-Za-z0-9\s]+))?$",
+            clean_line,
+            flags=re.I,
+        )
+        if m_line:
+            results.append({
+                "name": clean(m_line.group(1)),
+                "dose": clean(m_line.group(2)),
+                "dosage": clean(m_line.group(2)),
+                "frequency": clean(m_line.group(3)),
+                "duration": clean(m_line.group(4)) if m_line.group(4) else None,
+                "source": line,
+            })
+            continue
+
         parts = split_columns(line)
         if not parts:
             continue
         if norm(parts[0]) in {"s no", "medicine name", "dose", "frequency", "duration", "remarks"}:
             continue
         if not re.fullmatch(r"\d+", parts[0] or ""):
-            # PSM 11 has serial and medicine on separate lines; the complete
-            # prescription rows are handled below when this pass finds <4 rows.
             continue
 
         parts = parts[1:]
@@ -575,8 +594,8 @@ def extract_medications(lines: list[str]) -> list[dict[str, Any]]:
             "source": line,
         })
 
-    # If OCR split serial numbers from rows, rebuild using the sequence.
-    if len(results) < 4:
+    # If OCR split serial numbers from rows, rebuild using the sequence if no single-line results were found.
+    if not results:
         results = []
         i = 0
         while i < len(block):

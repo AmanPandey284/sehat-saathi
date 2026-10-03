@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     otp_cooldown_seconds: int = 60  # 60s cooldown
     otp_max_attempts: int = 5
     data_dir: str = "data"
+    db_path: str = "data/sehat_saathi.db"
+    admin_bootstrap_password: str | None = None
 
     # Document Extraction & AI Models
     openai_api_key: str | None = None
