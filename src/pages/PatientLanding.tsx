@@ -129,129 +129,129 @@ export default function PatientLanding() {
 
         <main className="mx-auto max-w-6xl px-6 pb-20 pt-6">
           {/* HERO SECTION */}
-          <section className="relative overflow-hidden rounded-3xl border border-clinic-100 bg-white/80 p-8 shadow-sm sm:p-14 glass-card">
+          <section className="relative overflow-hidden rounded-3xl border border-clinic-100 bg-white/90 p-8 shadow-sm sm:p-12 glass-card">
             <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-clinic-100/40 blur-3xl pointer-events-none" />
             <div className="absolute -left-20 -bottom-20 h-80 w-80 rounded-full bg-clinic-50/70 blur-2xl pointer-events-none" />
 
-            <div className="relative z-10 max-w-3xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-clinic-200 bg-clinic-50/80 px-3.5 py-1.5 text-xs font-semibold text-clinic-800 shadow-xs">
+            <div className="relative z-10 w-full">
+              <div className="inline-flex items-center gap-2 rounded-full border border-clinic-200 bg-clinic-50/80 px-3 py-1 text-xs font-semibold text-clinic-800">
                 <span className="flex h-2 w-2 rounded-full bg-clinic-500 animate-pulse" />
                 <span>Smart India Hackathon · SIH26047</span>
               </div>
 
-              <h1 className="mt-6 font-display text-4xl font-semibold leading-[1.15] text-ink sm:text-5xl lg:text-6xl tracking-tight">
-                {language === "hi"
-                  ? "अपनी परेशानी बताएं। डॉक्टर के लिए आपका इतिहास हम तैयार करेंगे।"
-                  : t.landing.heading}
-              </h1>
+              <div className="mt-4 max-w-3xl">
+                <h1 className="font-display text-3xl font-semibold leading-tight text-ink sm:text-4xl lg:text-5xl tracking-tight">
+                  {language === "hi"
+                    ? "अपनी परेशानी बताएं। डॉक्टर के लिए आपका इतिहास हम तैयार करेंगे।"
+                    : t.landing.heading}
+                </h1>
+                <p className="mt-3 text-base leading-relaxed text-muted sm:text-lg">
+                  {t.landing.subheading}
+                </p>
+              </div>
 
-              <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">
-                {t.landing.subheading}
-              </p>
-
-              {/* POLISHED ENTRY CARDS */}
-              <div className="mt-10 grid gap-4 sm:grid-cols-2 max-w-2xl">
-                {/* Patient Portal Card */}
-                <div className="relative group flex flex-col justify-between rounded-2xl border-2 border-clinic-500/20 bg-gradient-to-br from-white to-clinic-50/50 p-6 shadow-sm transition-all duration-200 hover:border-clinic-500 hover:shadow-md">
+              {/* BALANCED ENTRY CARDS */}
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                {/* Patient Portal Card (Dominant Action) */}
+                <div className="flex flex-col justify-between rounded-2xl border-2 border-clinic-600/30 bg-gradient-to-b from-white to-clinic-50/40 p-6 sm:p-7 shadow-xs transition duration-200 hover:border-clinic-600/50 hover:shadow-sm">
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-clinic-600 text-white text-xl shadow-xs">
-                        🙋
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-clinic-100 px-3 py-1 text-xs font-semibold text-clinic-800">
+                        <span>{language === "hi" ? "रोगी प्रवेश" : "Patient Portal"}</span>
                       </span>
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-clinic-600">
-                        {language === "hi" ? "रोगी प्रवेश" : "Patient Portal"}
+                      <span className="text-xs text-muted">
+                        {language === "hi" ? "कोई लॉगिन आवश्यक नहीं" : "No account required"}
                       </span>
                     </div>
-                    <h2 className="mt-4 font-display text-xl font-semibold text-ink">
-                      {language === "hi" ? "परामर्श पूर्व इतिहास दर्ज करें" : "Start Intake Consultation"}
+
+                    <h2 className="mt-4 font-display text-xl font-semibold text-ink sm:text-2xl">
+                      {language === "hi" ? "परामर्श पूर्व इतिहास दर्ज करें" : "Start Consultation"}
                     </h2>
-                    <p className="mt-1.5 text-xs text-muted leading-relaxed">
+                    <p className="mt-2 text-sm text-muted leading-relaxed">
                       {language === "hi"
-                        ? "आवाज या टाइप करके अपनी समस्या बताएं, पुरानी जांच रिपोर्ट जोड़ें और संरचित सारांश पाएं।"
-                        : "Share symptoms via voice or touch, attach past prescriptions, and prepare clinical history."}
+                        ? "आवाज या टाइप करके अपनी समस्या बताएं, पिछली जांच रिपोर्ट जोड़ें और डॉक्टर के लिए संरचित इतिहास पाएं।"
+                        : "Describe your symptoms by voice or text, attach prior records, and prepare a structured pre-consultation summary."}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={startNewConsultation}
-                    className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-clinic-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-clinic-700 hover:shadow"
-                  >
-                    <span>{t.landing.startButton}</span>
-                    <span aria-hidden>→</span>
-                  </button>
+
+                  <div className="mt-6 pt-4 border-t border-clinic-100/70">
+                    <button
+                      type="button"
+                      onClick={startNewConsultation}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-clinic-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-clinic-700 hover:shadow"
+                    >
+                      <span>{t.landing.startButton}</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+
+                    <div className="mt-3 text-center">
+                      <Link
+                        to="/auth"
+                        className="text-xs font-medium text-clinic-700 hover:text-clinic-900 transition inline-flex items-center gap-1 py-1"
+                      >
+                        <span>{language === "hi" ? "पहले से पंजीकृत हैं? मरीज साइन इन" : "Returning patient? Patient sign in"}</span>
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Doctor / Admin Portal Card */}
-                <div className="relative group flex flex-col justify-between rounded-2xl border border-clinic-200 bg-white p-6 shadow-sm transition-all duration-200 hover:border-clinic-400 hover:shadow-md">
+                {/* Physician Portal Card */}
+                <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xs transition duration-200 hover:border-slate-300 hover:shadow-sm">
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-clinic-800 text-xl border border-clinic-100">
-                        🩺
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                        <span>{language === "hi" ? "चिकित्सक पोर्टल" : "Clinical Portal"}</span>
                       </span>
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                        {language === "hi" ? "चिकित्सक पोर्टल" : "Clinical Portal"}
+                      <span className="text-xs text-muted">
+                        {language === "hi" ? "सुरक्षित पहुंच" : "Authorized Access"}
                       </span>
                     </div>
-                    <h2 className="mt-4 font-display text-xl font-semibold text-ink">
-                      {language === "hi" ? "डॉक्टर / क्लिनिकल समीक्षा" : "Physician Review Portal"}
+
+                    <h2 className="mt-4 font-display text-xl font-semibold text-ink sm:text-2xl">
+                      {language === "hi" ? "डॉक्टर समीक्षा पोर्टल" : "Physician Review Portal"}
                     </h2>
-                    <p className="mt-1.5 text-xs text-muted leading-relaxed">
+                    <p className="mt-2 text-sm text-muted leading-relaxed">
                       {language === "hi"
-                        ? "रोगी कतार देखें, प्राथमिकता वाले रेड-फ्लैग्स जांचें, प्रमाण सत्यापित करें व FHIR एक्सपोर्ट करें।"
-                        : "Inspect patient queue, triage urgent safety flags, verify evidence, and export FHIR bundles."}
+                        ? "रोगी कतार देखें, प्राथमिकता वाले सुरक्षा अलर्ट जांचें, प्रमाण सत्यापित करें और FHIR एक्सपोर्ट करें।"
+                        : "Inspect patient queue, triage urgent safety flags, verify evidence timeline, and sign off clinical notes."}
                     </p>
                   </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-100">
+                    <Link
+                      to="/doctor"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-6 py-3.5 text-base font-semibold text-slate-800 transition hover:bg-slate-100 hover:border-slate-400"
+                    >
+                      <span>{t.landing.doctorButton}</span>
+                      <span aria-hidden="true">🔒</span>
+                    </Link>
+
+                    <div className="mt-3 text-center">
+                      <span className="text-xs text-muted inline-block py-1">
+                        {language === "hi" ? "चिकित्सा परिषद पंजीकरण आवश्यक" : "Requires medical council registration"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* COMPACT WALKTHROUGH & PRIVACY ACTION (REPLACED OVERSIZED SAHAYAK STRIP) */}
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-clinic-100/80 pt-4 text-xs text-muted">
+                <div className="flex items-center gap-2">
+                  <span>{language === "hi" ? "सहायता चाहिए?" : "Need help?"}</span>
                   <Link
-                    to="/doctor"
-                    className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-clinic-300 bg-clinic-50/60 px-6 py-3.5 text-base font-semibold text-clinic-800 transition hover:bg-clinic-100 hover:border-clinic-400"
+                    to="/patient/help"
+                    className="font-medium text-clinic-700 hover:text-clinic-900 underline underline-offset-2 transition"
                   >
-                    <span>{t.landing.doctorButton}</span>
-                    <span aria-hidden>🔒</span>
+                    {language === "hi" ? "उपयोग मार्गदर्शिका देखें (Walkthrough)" : "View walkthrough"}
                   </Link>
                 </div>
-              </div>
-
-              {/* Sehat Saathi Sahayak Help Entry */}
-              <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clinic-200/80 bg-clinic-50/70 p-4 max-w-2xl shadow-2xs">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white border border-clinic-200 text-xl shadow-2xs">
-                    🤝
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-clinic-800">
-                      {language === "hi" ? "सेहत साथी सहायक" : "Sehat Saathi Sahayak"}
-                    </p>
-                    <p className="text-xs text-muted">
-                      {language === "hi"
-                        ? "सेहत साथी का उपयोग करने में सहायता चाहिए?"
-                        : "Need help using Sehat Saathi?"}
-                    </p>
-                  </div>
+                <div className="hidden sm:flex items-center gap-4 text-[11px] text-muted">
+                  <span>{language === "hi" ? "सत्रों के बीच पूर्ण डेटा गोपनीयता" : "Zero data retention across patient sessions"}</span>
                 </div>
-                <Link
-                  to="/patient/help"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-clinic-300 bg-white px-4 py-2 text-xs font-semibold text-clinic-800 shadow-2xs hover:bg-clinic-100 hover:border-clinic-400 transition"
-                >
-                  <span>{language === "hi" ? "उपयोग कैसे करें" : "How to Use"}</span>
-                  <span aria-hidden>→</span>
-                </Link>
               </div>
 
-              {/* Quick Navigation Links */}
-              <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
-                <Link to="/auth" className="font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-4">
-                  🔑 OTP Patient Login
-                </Link>
-                <Link to="/patient/ayush" className="font-semibold text-clinic-700 hover:text-clinic-900 underline underline-offset-4">
-                  🌿 Classical AYUSH Mode
-                </Link>
-                <Link to="/doctors" className="font-semibold text-cyan-700 hover:text-cyan-900 underline underline-offset-4">
-                  👨‍⚕️ Specialist Directory & OPD Slots
-                </Link>
-                <Link to="/patient/voice" className="font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-4">
-                  🎙️ Voice Consultation
-                </Link>
-              </div>
             </div>
           </section>
 

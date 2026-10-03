@@ -1,50 +1,20 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useLanguage } from "../i18n/LanguageContext";
 import { getHealth } from "../services/api";
 import LanguageSelector from "./LanguageSelector";
 
 type BackendStatus = "checking" | "online" | "offline";
 
-function StatusPill({ status }: { status: BackendStatus }) {
-  const { t } = useLanguage();
-
-  const styles: Record<BackendStatus, string> = {
-    checking: "bg-clinic-50 text-clinic-700",
-    online: "bg-clinic-100 text-clinic-800",
-    offline: "bg-flag-50 text-flag-700",
-  };
-
-  const dotStyles: Record<BackendStatus, string> = {
-    checking: "bg-clinic-400",
-    online: "bg-clinic-600",
-    offline: "bg-flag-500",
-  };
-
-  return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${styles[status]}`}
-      role="status"
-    >
-      <span
-        className={`h-2 w-2 rounded-full ${dotStyles[status]}`}
-        aria-hidden="true"
-      />
-      {t.status[status]}
-    </span>
-  );
-}
-
 export default function AppHeader({
   showStatus = false,
 }: {
   showStatus?: boolean;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [status, setStatus] = useState<BackendStatus>("checking");
 
   useEffect(() => {
-    if (!showStatus) return;
-
     let cancelled = false;
 
     getHealth()
@@ -62,23 +32,49 @@ export default function AppHeader({
 
   return (
     <header className="sticky top-0 z-30 border-b border-clinic-100/80 glass-header">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-clinic-600 to-clinic-700 text-white shadow-sm shadow-clinic-600/20">
-            <span className="text-xl leading-none select-none">🩺</span>
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3.5">
+        <Link to="/" className="flex items-center gap-3 group">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-clinic-600 to-clinic-700 text-white shadow-xs">
+            <span className="text-lg leading-none select-none">🩺</span>
           </div>
-          <div>
-            <span className="font-display text-xl font-semibold tracking-tight text-clinic-800">
+          <div className="flex items-center gap-2">
+            <span className="font-display text-lg font-semibold tracking-tight text-clinic-900 group-hover:text-clinic-700 transition">
               {t.brand}
             </span>
-            <span className="ml-2 hidden rounded-full border border-clinic-200 bg-clinic-50/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-clinic-700 sm:inline-block">
+            <span className="hidden rounded-full border border-clinic-200 bg-clinic-50 px-2 py-0.5 text-[10px] font-semibold text-clinic-700 sm:inline-block">
               SIH26047
             </span>
           </div>
-        </div>
+        </Link>
 
-        <div className="flex items-center gap-3">
-          {showStatus && <StatusPill status={status} />}
+        <div className="flex items-center gap-3 sm:gap-4">
+          {/* Restrained secondary navigation */}
+          <nav className="flex items-center gap-1 sm:gap-2">
+            <Link
+              to="/doctors"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted hover:text-clinic-800 hover:bg-clinic-50/70 transition"
+            >
+              {language === "hi" ? "डॉक्टर खोजें" : "Find a doctor"}
+            </Link>
+            <Link
+              to="/patient/help"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted hover:text-clinic-800 hover:bg-clinic-50/70 transition"
+            >
+              {language === "hi" ? "सहायता" : "Help"}
+            </Link>
+          </nav>
+
+          {/* Show service status ONLY when offline disruption occurs */}
+          {status === "offline" && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800"
+              role="status"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+              <span>{language === "hi" ? "ऑफ़लाइन मोड" : "Offline mode"}</span>
+            </span>
+          )}
+
           <LanguageSelector />
         </div>
       </div>
