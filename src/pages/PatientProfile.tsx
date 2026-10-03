@@ -22,11 +22,40 @@ export default function PatientProfile() {
   const [guardianName, setGuardianName] = useState('');
   const [relationship, setRelationship] = useState<'Mother' | 'Father' | 'Guardian'>('Mother');
   const [guardianPhone, setGuardianPhone] = useState('');
+  const [abhaNumber, setAbhaNumber] = useState('');
+  const [abhaAddress, setAbhaAddress] = useState('');
+  const [abdmConsent, setAbdmConsent] = useState(true);
   const [error, setError] = useState('');
+
+  const formatAbhaInput = (val: string) => {
+    const raw = val.replace(/\D/g, '').slice(0, 14);
+    const parts = [];
+    if (raw.length > 0) parts.push(raw.slice(0, 2));
+    if (raw.length > 2) parts.push(raw.slice(2, 6));
+    if (raw.length > 6) parts.push(raw.slice(6, 10));
+    if (raw.length > 10) parts.push(raw.slice(10, 14));
+    return parts.join('-');
+  };
+
+  const handleAbhaChange = (val: string) => {
+    const formatted = formatAbhaInput(val);
+    setAbhaNumber(formatted);
+    setError('');
+  };
 
   const go = () => {
     if (!name.trim() || !age.trim()) {
       setError(language === 'hi' ? 'नाम और उम्र दर्ज करें।' : 'Please enter name and age.');
+      return;
+    }
+
+    const cleanAbhaDigits = abhaNumber.replace(/\D/g, '');
+    if (cleanAbhaDigits.length > 0 && cleanAbhaDigits.length !== 14) {
+      setError(
+        language === 'hi'
+          ? 'कृपया 14-अंकीय मान्य आभा नंबर (ABHA ID) दर्ज करें या इसे खाली छोड़ें।'
+          : 'Please enter a valid 14-digit ABHA number or leave it blank.'
+      );
       return;
     }
 
@@ -55,14 +84,18 @@ export default function PatientProfile() {
       };
     }
 
+    const isAbha = cleanAbhaDigits.length === 14;
     setPatientProfile({
       name: name.trim(),
       age: age.trim(),
       sex,
-      identifier: `DEMO-${Date.now()}`,
-      identifierType: 'demo',
+      identifier: isAbha ? abhaNumber : `DEMO-${Date.now()}`,
+      identifierType: isAbha ? 'abha' : 'demo',
       language,
       emergencyContact,
+      abhaNumber: isAbha ? abhaNumber : undefined,
+      abhaAddress: abhaAddress.trim() ? abhaAddress.trim() : undefined,
+      abdmConsent,
     });
     nav('/patient');
   };
@@ -196,6 +229,91 @@ export default function PatientProfile() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Ayushman Bharat Digital Mission (ABDM / ABHA) Linking */}
+              <div className="mt-4 rounded-2xl border border-teal-200 bg-teal-50/50 p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-600 text-xs font-bold text-white shadow-sm">
+                      AB
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-teal-900">
+                          {language === 'hi' ? 'आयुष्मान भारत डिजिटल मिशन (ABHA ID)' : 'ABHA ID / ABDM Health Record'}
+                        </h3>
+                        <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-800 border border-teal-200">
+                          National Health Authority
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted">
+                        {language === 'hi'
+                          ? 'अपने 14-अंकीय आभा नंबर से जोड़ें ताकि अस्पताल रिकॉर्ड सुरक्षित रूप से जुड़ सके।'
+                          : 'Link your 14-digit Ayushman Bharat Health Account number for longitudinal clinical records.'}
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    href="https://abha.abdm.gov.in/abha/v3/register"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-[11px] font-semibold text-teal-700 hover:text-teal-900 underline"
+                  >
+                    {language === 'hi' ? 'नया ABHA बनाएं' : 'Create ABHA'} ↗
+                  </a>
+                </div>
+
+                <div className="mt-3.5 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted">
+                      {language === 'hi' ? '14-अंकीय ABHA नंबर' : '14-Digit ABHA Number'}
+                    </label>
+                    <input
+                      inputMode="numeric"
+                      type="text"
+                      maxLength={17}
+                      value={abhaNumber}
+                      onChange={(e) => handleAbhaChange(e.target.value)}
+                      placeholder="14-3456-7890-1234"
+                      className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-4 py-2.5 text-sm font-mono tracking-wide text-ink focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted">
+                      {language === 'hi' ? 'ABHA पता / उपनाम (वैकल्पिक)' : 'ABHA Address (Optional)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={abhaAddress}
+                      onChange={(e) => setAbhaAddress(e.target.value)}
+                      placeholder="username@abdm"
+                      className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-4 py-2.5 text-sm font-mono text-ink focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="abdm-consent-checkbox"
+                    checked={abdmConsent}
+                    onChange={(e) => setAbdmConsent(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-teal-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                  />
+                  <label htmlFor="abdm-consent-checkbox" className="text-[11px] text-muted cursor-pointer leading-relaxed">
+                    {language === 'hi'
+                      ? 'मैं इस परामर्श सारांश को राष्ट्रीय स्वास्थ्य प्राधिकरण (NHA) के ABDM नेटवर्क के माध्यम से अपने ABHA से जोड़ने की सहमति देता हूँ।'
+                      : 'I consent to linking this clinical intake and FHIR bundle with my ABHA account under ABDM standards.'}
+                  </label>
+                </div>
+
+                <p className="mt-2 text-[10px] text-teal-800/80 bg-teal-100/60 rounded-lg p-2 border border-teal-200/50">
+                  🔒 {language === 'hi'
+                    ? 'गोपनीयता सूचना: सेहत साथी इस कियोस्क में आपका आधार नंबर या ओटीपी कभी नहीं मांगता और न ही संग्रहित करता है।'
+                    : 'Privacy Guarantee: Sehat Saathi does not ask for or store your Aadhaar number or ABDM OTP in this kiosk flow.'}
+                </p>
               </div>
             </div>
 

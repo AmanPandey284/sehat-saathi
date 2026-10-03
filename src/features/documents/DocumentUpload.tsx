@@ -19,6 +19,9 @@ export default function DocumentUpload() {
   const { documents, addDocument, removeDocument, updateTimestamps } = usePatientSession();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [docCategory, setDocCategory] = useState<
+    'prescription' | 'lab_report' | 'ecg_radiology' | 'consultation_record'
+  >('prescription');
 
   const process = async (file: File) => {
     setBusy(true);
@@ -115,10 +118,19 @@ export default function DocumentUpload() {
             return list;
           })();
 
+      const categoryLabel =
+        docCategory === 'prescription'
+          ? 'Prescription'
+          : docCategory === 'lab_report'
+          ? 'Laboratory Report'
+          : docCategory === 'ecg_radiology'
+          ? 'ECG / Radiology'
+          : 'Previous Consultation';
+
       addDocument({
         id: crypto.randomUUID(),
         name: r.name,
-        type: file.type || r.type,
+        type: categoryLabel,
         uploadedAt: r.processedAt,
         text: r.text,
         extractionStatus:
@@ -177,7 +189,49 @@ export default function DocumentUpload() {
         </p>
       </div>
 
-      <label className="mt-5 block cursor-pointer rounded-xl border-2 border-dashed border-clinic-200 p-8 text-center hover:bg-clinic-50">
+      {/* Historical Provenance & Safety Notice */}
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
+        <span className="text-base leading-none">⚠️</span>
+        <div>
+          <span className="font-bold">Historical records — not current diagnosis:</span>{' '}
+          All extracted medications, laboratory values and clinical notes are organized as reference
+          material for the attending doctor. They do not constitute an autonomous medical finding.
+        </div>
+      </div>
+
+      {/* Document Categorization Chips */}
+      <div className="mt-5">
+        <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2">
+          Select Document Category Before Upload
+        </label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { id: 'prescription', label: 'Prescription', icon: '💊' },
+            { id: 'lab_report', label: 'Lab Report', icon: '🔬' },
+            { id: 'ecg_radiology', label: 'ECG / Radiology', icon: '🫀' },
+            { id: 'consultation_record', label: 'Consultation', icon: '📋' },
+          ].map((cat) => {
+            const isSelected = docCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setDocCategory(cat.id as any)}
+                className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${
+                  isSelected
+                    ? 'border-clinic-600 bg-clinic-50 text-clinic-800 shadow-xs ring-1 ring-clinic-600'
+                    : 'border-clinic-200 bg-white text-muted hover:border-clinic-300 hover:text-ink'
+                }`}
+              >
+                <span>{cat.icon}</span>
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <label className="mt-4 block cursor-pointer rounded-xl border-2 border-dashed border-clinic-200 p-8 text-center hover:bg-clinic-50">
         <span className="font-medium text-clinic-700">
           Choose image, PDF or text document
         </span>
@@ -242,12 +296,19 @@ function StructuredDocumentCard({
     <article className="rounded-xl border border-clinic-100 bg-canvas">
       <div className="flex items-start gap-3 p-4">
         <div className="flex-1">
-          <p className="font-medium text-ink">
-            {doc.name}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium text-ink">
+              {doc.name}
+            </p>
+            {doc.type && (
+              <span className="rounded-full bg-clinic-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-clinic-800 border border-clinic-200">
+                {doc.type}
+              </span>
+            )}
+          </div>
 
           <p className="mt-0.5 text-xs text-muted">
-            {doc.entities?.length ?? 0} entities extracted
+            {doc.entities?.length ?? 0} entities extracted · Provisional record
           </p>
         </div>
 

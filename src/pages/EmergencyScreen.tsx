@@ -74,6 +74,67 @@ export default function EmergencyScreen() {
                   ? 'यदि आप अस्पताल परिसर में नहीं हैं, तो तुरंत एम्बुलेंस के लिए 108 पर कॉल करें या नजदीकी आकस्मिक कक्ष (Emergency Room) जाएं।'
                   : 'If you are not currently in a hospital setting, dial 108 for ambulance services or proceed to the nearest emergency department immediately.'}
               </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href="tel:108"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-red-700 transition"
+                >
+                  <span>📞</span>
+                  <span>{language === 'hi' ? '108 एम्बुलेंस डायल करें' : 'Call 108 Ambulance'}</span>
+                </a>
+                <a
+                  href="tel:112"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-400 bg-red-950/80 px-4 py-2 text-xs font-bold text-red-100 hover:bg-red-900 transition"
+                >
+                  <span>🚨</span>
+                  <span>{language === 'hi' ? '112 राष्ट्रीय आपातकालीन' : 'Call 112 All-Emergency'}</span>
+                </a>
+              </div>
+            </div>
+
+            {/* QUICK-FILL HOSPITAL TRIAGE DISPATCH */}
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-slate-950/90 p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🏥</span>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-red-300">
+                    {language === 'hi' ? 'अस्पताल ट्रायेज त्वरित अनुरोध' : 'Hospital Triage Quick-Fill Request'}
+                  </h3>
+                </div>
+                <span className="rounded-full bg-red-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-red-300 border border-red-500/30">
+                  ER Fast-Track
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
+                {language === 'hi'
+                  ? 'अस्पताल आगमन से पूर्व आपातकालीन ट्रायेज डेस्क को सूचित करें या तत्काल बेड/रक्त आवश्यकता दर्ज करें।'
+                  : 'Alert the ER triage desk prior to arrival or submit an immediate bed/blood unit readiness signal.'}
+              </p>
+
+              <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => alert(language === 'hi' ? 'आपातकालीन बेड अलर्ट भेजा गया: ER ट्रायेज डेस्क स्टेशन 1 को तत्काल सूचना भेजी गई है।' : 'Emergency Bed Alert Sent: Notified ER Triage Station 1 for urgent patient reception.')}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-red-500/60 bg-red-900/40 px-4 py-3 text-xs font-bold text-red-100 hover:bg-red-800/50 hover:border-red-400 transition"
+                >
+                  <span>🛏️</span>
+                  <span>{language === 'hi' ? 'आपातकालीन बेड अनुरोध (ER Bed)' : 'Emergency Bed Request'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => alert(language === 'hi' ? 'आपातकालीन रक्त बैंक अलर्ट: ब्लड बैंक यूनिट को संभावित आवश्यकता हेतु अलर्ट कर दिया गया है।' : 'Emergency Blood Request Alert: Hospital blood bank notified for standby blood matching.')}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-red-500/60 bg-red-900/40 px-4 py-3 text-xs font-bold text-red-100 hover:bg-red-800/50 hover:border-red-400 transition"
+                >
+                  <span>🩸</span>
+                  <span>{language === 'hi' ? 'आपातकालीन रक्त अनुरोध (Blood Unit)' : 'Emergency Blood Request'}</span>
+                </button>
+              </div>
+
+              <p className="mt-3 text-[11px] text-slate-400 italic">
+                * {language === 'hi'
+                  ? 'पारंपरिक/आयुर्वेदिक या सामान्य बाह्यरोगी परामर्श गंभीर आपात स्थिति का विकल्प नहीं है। तत्काल चिकित्सीय हस्तक्षेप अनिवार्य है।'
+                  : 'Traditional or outpatient intake does not replace acute emergency care. Critical interventions must be administered by certified medical staff immediately.'}
+              </p>
             </div>
 
             {/* EXPLICIT ACTIONS */}

@@ -158,6 +158,21 @@ export default function ExistingPatientLookup() {
                       : language === "hi" ? "खोजें" : "Find Record"}
                   </button>
                 </div>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
+                  <span>
+                    {language === "hi"
+                      ? "ABHA 14-अंकीय स्वास्थ्य खाता संख्या या मोबाइल नंबर"
+                      : "ABHA 14-digit health number or registered phone"}
+                  </span>
+                  <a
+                    href="https://abha.abdm.gov.in/abha/v3/register"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-teal-700 hover:text-teal-900 font-medium underline"
+                  >
+                    {language === "hi" ? "नया ABHA बनाएं (NHA)" : "Register ABHA on NHA"} ↗
+                  </a>
+                </div>
               </div>
 
               {error && (

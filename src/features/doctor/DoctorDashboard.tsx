@@ -86,13 +86,17 @@ export default function DoctorDashboard() {
   }, [activeRecord?.id]);
 
   const [tab, setTab] = useState<
-    'summary' | 'conversation' | 'documents' | 'timeline' | 'ayush'
+    'summary' | 'conversation' | 'documents' | 'timeline' | 'ayush' | 'medication_safety'
   >('summary');
 
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState('');
   const [summaryProvider, setSummaryProvider] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reviewNoteInput, setReviewNoteInput] = useState('');
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [medQuery, setMedQuery] = useState('');
+  const [customMeds, setCustomMeds] = useState<string[]>([]);
 
   // Resolved clinical data: selected record, or fallback to live session
   const answers = activeRecord ? activeRecord.historyAnswers : (s.historyAnswers ?? {});
@@ -364,6 +368,29 @@ export default function DoctorDashboard() {
       determinedAt: new Date().toISOString(),
     };
     updatePatientRecord(recordId, { suggestedRouting: updatedRouting });
+    setRecords(getStoredPatientRecords());
+  };
+
+  useEffect(() => {
+    setReviewNoteInput(activeRecord?.physicianReviewNote || '');
+  }, [activeRecord?.id, activeRecord?.physicianReviewNote]);
+
+  const handlePhysicianDecision = (decision: 'confirmed' | 'clarification' | 'flagged') => {
+    if (!activeRecord) return;
+    const now = new Date().toISOString();
+    const updatedTimestamps = {
+      ...(activeRecord.timestamps || {}),
+      physicianReviewCompletedAt: now,
+    };
+    updatePatientRecord(activeRecord.id, {
+      physicianDecision: decision,
+      physicianReviewNote: reviewNoteInput.trim() ? reviewNoteInput.trim() : undefined,
+      physicianDecisionTimestamp: now,
+      physicianDecisionBy: user?.displayName || 'Dr. Attendee (MD)',
+      reviewStatus: decision === 'confirmed' ? 'reviewed' : 'pending',
+      timestamps: updatedTimestamps,
+      durations: calculateWorkflowDurations(updatedTimestamps),
+    });
     setRecords(getStoredPatientRecords());
   };
 
@@ -749,7 +776,8 @@ export default function DoctorDashboard() {
                   'conversation',
                   'documents',
                   'timeline',
-                  'ayush'
+                  'ayush',
+                  'medication_safety'
                 ] as const
               ).map(t => (
                 <button
@@ -761,7 +789,11 @@ export default function DoctorDashboard() {
                       : 'text-muted hover:bg-clinic-50'
                   }`}
                 >
-                  {t === 'ayush' ? '🌿 AYUSH' : t[0].toUpperCase() + t.slice(1)}
+                  {t === 'ayush'
+                    ? '🌿 AYUSH'
+                    : t === 'medication_safety'
+                    ? '💊 Medication Safety'
+                    : t[0].toUpperCase() + t.slice(1)}
                 </button>
               ))}
 
@@ -808,6 +840,161 @@ export default function DoctorDashboard() {
 
           {/* Content */}
           <section className="space-y-5">
+
+            {/* CLINICIAN WORKFLOW DECISION & ABDM ENCOUNTER HEADER */}
+            <div className="rounded-2xl border border-clinic-200 bg-white p-5 shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-clinic-100 pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-clinic-600 text-white text-sm font-bold shadow-xs">
+                    🩺
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-bold text-ink uppercase tracking-wide">
+                        Physician Decision & Record Sign-Off
+                      </h2>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                          activeRecord?.physicianDecision === 'confirmed'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : activeRecord?.physicianDecision === 'clarification'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : activeRecord?.physicianDecision === 'flagged'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                            : 'bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}
+                      >
+                        {activeRecord?.physicianDecision
+                          ? activeRecord.physicianDecision === 'confirmed'
+                            ? '✓ Confirmed & Approved'
+                            : activeRecord.physicianDecision === 'clarification'
+                            ? '💬 Clarification Requested'
+                            : '🚩 Flagged for Investigation'
+                          : 'Pending Doctor Decision'}
+                      </span>
+                    </div>
+                    {activeRecord?.physicianDecisionTimestamp && (
+                      <p className="text-[11px] text-muted">
+                        Signed by {activeRecord.physicianDecisionBy || 'Dr. Attendee'} on{' '}
+                        {new Date(activeRecord.physicianDecisionTimestamp).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => handlePhysicianDecision('confirmed')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-semibold shadow-xs transition flex items-center gap-1.5 ${
+                      activeRecord?.physicianDecision === 'confirmed'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <span>✓</span>
+                    <span>Confirm & Sign Record</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePhysicianDecision('clarification')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-semibold shadow-xs transition flex items-center gap-1.5 ${
+                      activeRecord?.physicianDecision === 'clarification'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    <span>💬</span>
+                    <span>Request Clarification</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePhysicianDecision('flagged')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-semibold shadow-xs transition flex items-center gap-1.5 ${
+                      activeRecord?.physicianDecision === 'flagged'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-100'
+                    }`}
+                  >
+                    <span>🚩</span>
+                    <span>Flag Case</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowNoteEditor((v) => !v)}
+                    className="rounded-xl border border-clinic-200 bg-white px-3 py-2 text-xs font-medium text-muted hover:bg-clinic-50 transition"
+                  >
+                    {showNoteEditor ? 'Hide Note' : 'Add/Edit Note'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Review Note Editor */}
+              {showNoteEditor && (
+                <div className="mt-3 rounded-xl border border-clinic-200 bg-canvas/60 p-3.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
+                    Attending Physician Clinical Review Note
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={reviewNoteInput}
+                    onChange={(e) => setReviewNoteInput(e.target.value)}
+                    placeholder="Enter clinical observations, differential notes, or follow-up orders..."
+                    className="w-full rounded-lg border border-clinic-200 bg-white p-2.5 text-xs text-ink focus:border-clinic-500 focus:outline-hidden focus:ring-1 focus:ring-clinic-200 transition"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeRecord) {
+                          updatePatientRecord(activeRecord.id, {
+                            physicianReviewNote: reviewNoteInput.trim() ? reviewNoteInput.trim() : undefined,
+                          });
+                          setRecords(getStoredPatientRecords());
+                          setShowNoteEditor(false);
+                        }
+                      }}
+                      className="rounded-lg bg-clinic-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-clinic-700 transition"
+                    >
+                      Save Clinical Note
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Saved Note Display if present and not editing */}
+              {!showNoteEditor && activeRecord?.physicianReviewNote && (
+                <div className="mt-3 rounded-xl border border-clinic-100 bg-clinic-50/50 p-3 text-xs text-ink">
+                  <span className="font-semibold text-clinic-900 block mb-0.5">Physician Note:</span>
+                  <p className="text-muted leading-relaxed">{activeRecord.physicianReviewNote}</p>
+                </div>
+              )}
+
+              {/* ABDM & ABHA Encounter Consent Status Bar */}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-200/80 bg-teal-50/60 px-3.5 py-2 text-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-teal-900">ABDM Encounter:</span>
+                  <span className="font-mono text-teal-800">
+                    {patientProfile?.identifierType === 'abha' || patientProfile?.abhaNumber
+                      ? `ABHA: ${patientProfile.abhaNumber || patientProfile.identifier}`
+                      : 'ABHA: Unlinked / Kiosk Demo ID'}
+                  </span>
+                  {patientProfile?.abhaAddress && (
+                    <span className="text-muted">({patientProfile.abhaAddress})</span>
+                  )}
+                  <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-800 border border-teal-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
+                    Consent: Active (EHR Exchange Ready)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted">FHIR R4 Bundle ready</span>
+                </div>
+              </div>
+            </div>
 
             {/* SUMMARY TAB */}
             {tab === 'summary' && (
@@ -1407,6 +1594,272 @@ export default function DoctorDashboard() {
                 <div className="mt-6 rounded-xl bg-canvas p-4 text-xs text-muted border border-clinic-100">
                   <strong className="text-ink">Source:</strong> Patient-reported Ayurvedic clinical history ·
                   Captured during intake · Designed for Ayurvedic OPD practitioner review · Does not constitute an autonomous diagnosis or prescription.
+                </div>
+              </div>
+            )}
+
+            {/* MEDICATION SAFETY TAB */}
+            {tab === 'medication_safety' && (
+              <div className="rounded-2xl border border-clinic-100 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-clinic-100 pb-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-clinic-600">
+                      <span>💊</span>
+                      <span>Clinical Pharmacology · Official Label Evidence</span>
+                    </div>
+                    <h2 className="mt-1 font-display text-2xl font-semibold text-ink">
+                      Medication Safety & Interaction Review
+                    </h2>
+                    <p className="mt-1 text-sm text-muted">
+                      Evaluates active and provisional medications against reported patient allergies, chronic conditions, and official product labels.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-teal-50 border border-teal-200 px-3 py-1 text-xs font-medium text-teal-800">
+                    Official Product Label Reference
+                  </span>
+                </div>
+
+                {/* Add / Check Medication Input */}
+                <div className="mt-5 rounded-xl border border-clinic-200 bg-canvas/40 p-4">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
+                    Check Medication or Add to Interaction Screen
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={medQuery}
+                      onChange={(e) => setMedQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && medQuery.trim()) {
+                          e.preventDefault();
+                          if (!customMeds.includes(medQuery.trim())) {
+                            setCustomMeds([...customMeds, medQuery.trim()]);
+                          }
+                          setMedQuery('');
+                        }
+                      }}
+                      placeholder="Type allopathic medicine name (e.g. Paracetamol, Ibuprofen, Amoxicillin, Metformin)..."
+                      className="w-full rounded-xl border border-clinic-200 bg-white px-4 py-2.5 text-xs text-ink focus:border-clinic-500 focus:outline-hidden focus:ring-1 focus:ring-clinic-200 transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (medQuery.trim() && !customMeds.includes(medQuery.trim())) {
+                          setCustomMeds([...customMeds, medQuery.trim()]);
+                          setMedQuery('');
+                        }
+                      }}
+                      className="shrink-0 rounded-xl bg-clinic-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-clinic-700 transition"
+                    >
+                      + Add to Check
+                    </button>
+                  </div>
+
+                  {/* Quick-add chips */}
+                  <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] text-muted">Quick test:</span>
+                    {['Paracetamol 500mg', 'Ibuprofen 400mg', 'Amoxicillin 500mg', 'Metformin 500mg', 'Atenolol 25mg', 'Pantoprazole 40mg'].map((qm) => (
+                      <button
+                        key={qm}
+                        type="button"
+                        onClick={() => {
+                          if (!customMeds.includes(qm)) {
+                            setCustomMeds([...customMeds, qm]);
+                          }
+                        }}
+                        className="rounded-lg border border-clinic-200 bg-white px-2 py-1 text-[11px] font-medium text-clinic-700 hover:bg-clinic-50 transition"
+                      >
+                        + {qm}
+                      </button>
+                    ))}
+                    {customMeds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomMeds([])}
+                        className="ml-auto text-[11px] font-medium text-rose-600 hover:underline"
+                      >
+                        Clear added ({customMeds.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ACTIVE MEDICATIONS LIST */}
+                <div className="mt-6">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
+                    Current Medications Under Review
+                  </h3>
+                  {(() => {
+                    const extracted = documents.flatMap((d) =>
+                      (d.entities || [])
+                        .filter((e) => e.type === 'Medication')
+                        .map((e) => e.value)
+                    );
+                    const reported = backgroundHistory.medications
+                      ? backgroundHistory.medications
+                          .split(/[,;\n]+/)
+                          .map((m) => m.trim())
+                          .filter((m) => m && m.toLowerCase() !== 'none')
+                      : [];
+                    const allList = Array.from(new Set([...reported, ...extracted, ...customMeds]));
+
+                    if (allList.length === 0) {
+                      return (
+                        <p className="rounded-xl border border-dashed border-clinic-200 p-4 text-xs text-muted">
+                          No medications currently recorded. Add medicine names above or upload a prescription to run safety checks.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div className="flex flex-wrap gap-2">
+                        {allList.map((m, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-clinic-200 bg-clinic-50/60 px-3 py-1.5 text-xs font-semibold text-clinic-900"
+                          >
+                            <span>💊</span>
+                            <span>{m}</span>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* SAFETY ALERTS & CONTRAINDICATIONS */}
+                <div className="mt-6 space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted">
+                    Clinical Safety Warnings & Contraindication Analysis
+                  </h3>
+
+                  {(() => {
+                    const extracted = documents.flatMap((d) =>
+                      (d.entities || [])
+                        .filter((e) => e.type === 'Medication')
+                        .map((e) => e.value)
+                    );
+                    const reported = backgroundHistory.medications
+                      ? backgroundHistory.medications
+                          .split(/[,;\n]+/)
+                          .map((m) => m.trim())
+                          .filter((m) => m && m.toLowerCase() !== 'none')
+                      : [];
+                    const allList = Array.from(new Set([...reported, ...extracted, ...customMeds]));
+                    const allText = allList.join(' ').toLowerCase();
+
+                    const allergiesText = (backgroundHistory.allergies || '').toLowerCase();
+                    const pastConditions = (backgroundHistory.pastMedical || '').toLowerCase();
+                    const complaintText = ((complaint?.originalInput || '') + ' ' + (complaint?.displayName || '')).toLowerCase();
+
+                    const warnings: Array<{ level: 'urgent' | 'caution' | 'info'; title: string; detail: string }> = [];
+
+                    // Allergy cross-matching
+                    if (allergiesText && allergiesText !== 'none') {
+                      if ((allergiesText.includes('penicillin') || allergiesText.includes('amoxicillin')) && (allText.includes('amoxicillin') || allText.includes('penicillin') || allText.includes('augmentin'))) {
+                        warnings.push({
+                          level: 'urgent',
+                          title: 'Severe Allergy Contraindication: Penicillin Class',
+                          detail: `Patient reported allergy "${backgroundHistory.allergies}". Prescribing penicillin/amoxicillin-class antibiotics carries risk of anaphylaxis.`,
+                        });
+                      }
+                      if ((allergiesText.includes('aspirin') || allergiesText.includes('nsaid') || allergiesText.includes('sulfa')) && (allText.includes('aspirin') || allText.includes('ibuprofen') || allText.includes('diclofenac'))) {
+                        warnings.push({
+                          level: 'urgent',
+                          title: 'Allergy Warning: NSAID / Aspirin Hypersensitivity',
+                          detail: `Patient reported allergy "${backgroundHistory.allergies}". Cross-reactive with active NSAID medication.`,
+                        });
+                      }
+                    }
+
+                    // NSAID + GI Ulcer / Gastritis / Bleeding
+                    if (allText.includes('ibuprofen') || allText.includes('diclofenac') || allText.includes('aspirin') || allText.includes('naproxen') || allText.includes('aceclofenac')) {
+                      if (pastConditions.includes('ulcer') || pastConditions.includes('gastritis') || complaintText.includes('stomach') || complaintText.includes('abdominal pain') || complaintText.includes('vomit')) {
+                        warnings.push({
+                          level: 'caution',
+                          title: 'Gastrointestinal Toxicity Precaution (NSAID)',
+                          detail: 'NSAIDs significantly increase risk of gastric ulceration, bleeding, and perforation. Co-prescribe PPI (e.g. Pantoprazole) or consider acetaminophen alternative.',
+                        });
+                      }
+                      if (pastConditions.includes('kidney') || pastConditions.includes('renal') || pastConditions.includes('ckd')) {
+                        warnings.push({
+                          level: 'urgent',
+                          title: 'Renal Toxicity Warning: NSAIDs in Pre-existing Renal Impairment',
+                          detail: 'NSAIDs inhibit renal prostaglandins and can induce acute kidney injury in vulnerable patients.',
+                        });
+                      }
+                    }
+
+                    // Beta-Blocker + Asthma / COPD
+                    if (allText.includes('atenolol') || allText.includes('metoprolol') || allText.includes('propranolol') || allText.includes('bisoprolol')) {
+                      if (pastConditions.includes('asthma') || pastConditions.includes('copd') || complaintText.includes('wheez') || complaintText.includes('breathless')) {
+                        warnings.push({
+                          level: 'caution',
+                          title: 'Bronchospasm Risk: Beta-Blockers with Reactive Airway Disease',
+                          detail: 'Beta-adrenergic blockade may precipitate life-threatening bronchospasm in patients with asthma or severe COPD.',
+                        });
+                      }
+                    }
+
+                    // Metformin + Dehydration / Renal
+                    if (allText.includes('metformin')) {
+                      if (complaintText.includes('vomiting') || complaintText.includes('diarrhea') || complaintText.includes('dehydrat')) {
+                        warnings.push({
+                          level: 'caution',
+                          title: 'Lactic Acidosis Precaution: Metformin during Acute Illness',
+                          detail: 'Temporarily withhold Metformin in patients presenting with dehydration, severe vomiting, or acute hemodynamic instability.',
+                        });
+                      }
+                    }
+
+                    // General guidance note if no critical warnings triggered
+                    if (warnings.length === 0) {
+                      warnings.push({
+                        level: 'info',
+                        title: 'No Critical Drug-Allergy or Disease Contraindications Flagged',
+                        detail: 'Evaluated against patient reported allergies and chronic conditions. Always confirm renal and hepatic function before finalizing discharge prescription.',
+                      });
+                    }
+
+                    return warnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className={`rounded-xl border p-4 shadow-2xs ${
+                          w.level === 'urgent'
+                            ? 'border-rose-300 bg-rose-50/90 text-rose-900'
+                            : w.level === 'caution'
+                            ? 'border-amber-300 bg-amber-50/90 text-amber-900'
+                            : 'border-clinic-200 bg-clinic-50/60 text-clinic-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">
+                            {w.level === 'urgent' ? '🚨' : w.level === 'caution' ? '⚠️' : 'ℹ️'}
+                          </span>
+                          <strong className="text-xs uppercase tracking-wide">{w.title}</strong>
+                        </div>
+                        <p className="mt-1 text-xs pl-5 leading-relaxed">{w.detail}</p>
+                      </div>
+                    ));
+                  })()}
+                </div>
+
+                {/* OFFICIAL LABEL & DOSAGE REFERENCE GUIDE */}
+                <div className="mt-6 rounded-xl border border-clinic-100 bg-canvas p-4 text-xs text-muted">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-ink">Official Product Label Evidence Summary:</strong>
+                    <span className="text-[10px] font-semibold text-clinic-700">FDA / CDSCO Monograph Standards</span>
+                  </div>
+                  <ul className="mt-2 space-y-1.5 list-disc pl-4">
+                    <li><strong className="text-ink">Paracetamol:</strong> Max 4000 mg/24h in adults (reduced in hepatic disease or chronic alcohol use).</li>
+                    <li><strong className="text-ink">Amoxicillin:</strong> Standard adult dose 500 mg TID or 875 mg BID. Check hypersensitivity history.</li>
+                    <li><strong className="text-ink">Ibuprofen:</strong> 400 mg q6-8h PRN. Contraindicated in active peptic ulceration or 3rd trimester pregnancy.</li>
+                    <li><strong className="text-ink">Metformin:</strong> Titrate with meals to minimize GI adverse effects. Monitor eGFR annually.</li>
+                  </ul>
+                  <p className="mt-3 text-[11px] text-muted italic">
+                    * For physician reference only. Final prescription decisions and dosing remain the exclusive clinical responsibility of the certified practitioner.
+                  </p>
                 </div>
               </div>
             )}

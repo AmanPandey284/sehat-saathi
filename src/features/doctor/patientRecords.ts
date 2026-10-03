@@ -26,6 +26,10 @@ export interface StoredPatientRecord {
   doctorReviews: DoctorReview[];
   ayushHistory: AyushHistory;
   reviewStatus: "pending" | "reviewed";
+  physicianDecision?: 'confirmed' | 'clarification' | 'flagged';
+  physicianReviewNote?: string;
+  physicianDecisionTimestamp?: string;
+  physicianDecisionBy?: string;
   longitudinalChanges?: import("../patient/returningPatientModel").LongitudinalChanges;
   suggestedRouting?: SuggestedRouting;
   timestamps?: import("../timing/timingTypes").WorkflowTimestamps;
