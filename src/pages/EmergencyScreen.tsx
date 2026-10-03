@@ -98,35 +98,35 @@ export default function EmergencyScreen() {
                 <div className="flex items-center gap-2">
                   <span className="text-base">🏥</span>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-red-300">
-                    {language === 'hi' ? 'अस्पताल ट्रायेज त्वरित अनुरोध' : 'Hospital Triage Quick-Fill Request'}
+                    {language === 'hi' ? 'अस्पताल ट्रायेज अनुकरण (Demo Mode)' : 'Hospital Triage Routing (Demo Simulation)'}
                   </h3>
                 </div>
-                <span className="rounded-full bg-red-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-red-300 border border-red-500/30">
-                  ER Fast-Track
+                <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-500/30">
+                  Prototype Only
                 </span>
               </div>
               <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
                 {language === 'hi'
-                  ? 'अस्पताल आगमन से पूर्व आपातकालीन ट्रायेज डेस्क को सूचित करें या तत्काल बेड/रक्त आवश्यकता दर्ज करें।'
-                  : 'Alert the ER triage desk prior to arrival or submit an immediate bed/blood unit readiness signal.'}
+                  ? 'यह प्रोटोटाइप किसी वास्तविक आपातकालीन सेवा से लाइव कनेक्टेड नहीं है। त्वरित सहायता के लिए कृपया 108 या 112 पर तुरंत कॉल करें।'
+                  : 'Notice: This software prototype has no live hospital or ambulance dispatch integration. For acute emergencies, call 108 / 112 immediately.'}
               </p>
 
               <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => alert(language === 'hi' ? 'आपातकालीन बेड अलर्ट भेजा गया: ER ट्रायेज डेस्क स्टेशन 1 को तत्काल सूचना भेजी गई है।' : 'Emergency Bed Alert Sent: Notified ER Triage Station 1 for urgent patient reception.')}
+                  onClick={() => alert(language === 'hi' ? 'डेमो अनुकरण: टिकट #DEMO-BED-701 उत्पन्न हुआ। (नोट: यह केवल डेमो है, कोई वास्तविक बेड आरक्षित नहीं हुआ है। कृपया 108 पर कॉल करें।)' : 'Demo Simulation: Mock triage ticket #DEMO-BED-701 recorded. NOTE: This is a hackathon prototype and did NOT contact real emergency services. Call 108 immediately.')}
                   className="flex items-center justify-center gap-2 rounded-xl border border-red-500/60 bg-red-900/40 px-4 py-3 text-xs font-bold text-red-100 hover:bg-red-800/50 hover:border-red-400 transition"
                 >
                   <span>🛏️</span>
-                  <span>{language === 'hi' ? 'आपातकालीन बेड अनुरोध (ER Bed)' : 'Emergency Bed Request'}</span>
+                  <span>{language === 'hi' ? 'सिम्युलेटेड बेड अनुरोध (Demo Bed)' : 'Simulate Bed Ticket (Demo)'}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => alert(language === 'hi' ? 'आपातकालीन रक्त बैंक अलर्ट: ब्लड बैंक यूनिट को संभावित आवश्यकता हेतु अलर्ट कर दिया गया है।' : 'Emergency Blood Request Alert: Hospital blood bank notified for standby blood matching.')}
+                  onClick={() => alert(language === 'hi' ? 'डेमो अनुकरण: टिकट #DEMO-BLD-402 उत्पन्न हुआ। (नोट: यह केवल डेमो है, कोई वास्तविक ब्लड बैंक सूचित नहीं हुआ है।)' : 'Demo Simulation: Mock blood ticket #DEMO-BLD-402 recorded. NOTE: This is a hackathon prototype and did NOT alert a live blood bank.')}
                   className="flex items-center justify-center gap-2 rounded-xl border border-red-500/60 bg-red-900/40 px-4 py-3 text-xs font-bold text-red-100 hover:bg-red-800/50 hover:border-red-400 transition"
                 >
                   <span>🩸</span>
-                  <span>{language === 'hi' ? 'आपातकालीन रक्त अनुरोध (Blood Unit)' : 'Emergency Blood Request'}</span>
+                  <span>{language === 'hi' ? 'सिम्युलेटेड रक्त अनुरोध (Demo Blood)' : 'Simulate Blood Ticket (Demo)'}</span>
                 </button>
               </div>
 

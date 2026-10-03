@@ -15,7 +15,7 @@ export default function DoctorLogin() {
 
   const from = (location.state as any)?.from?.pathname || "/doctor";
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -25,7 +25,7 @@ export default function DoctorLogin() {
     }
 
     setBusy(true);
-    const result = login(username, password);
+    const result = await login(username, password);
     setBusy(false);
 
     if (result.ok) {

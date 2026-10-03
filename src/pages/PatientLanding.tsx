@@ -237,11 +237,19 @@ export default function PatientLanding() {
                 </Link>
               </div>
 
-              {/* Quick AYUSH Link */}
-              <div className="mt-5 flex items-center gap-2 text-xs text-muted">
-                <span>Looking for traditional Ayurveda intake?</span>
-                <Link to="/patient/ayush" className="font-semibold text-clinic-700 underline decoration-clinic-300 underline-offset-4 hover:text-clinic-900">
-                  Open AYUSH Mode →
+              {/* Quick Navigation Links */}
+              <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
+                <Link to="/auth" className="font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-4">
+                  🔑 OTP Patient Login
+                </Link>
+                <Link to="/patient/ayush" className="font-semibold text-clinic-700 hover:text-clinic-900 underline underline-offset-4">
+                  🌿 Classical AYUSH Mode
+                </Link>
+                <Link to="/doctors" className="font-semibold text-cyan-700 hover:text-cyan-900 underline underline-offset-4">
+                  👨‍⚕️ Specialist Directory & OPD Slots
+                </Link>
+                <Link to="/patient/voice" className="font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-4">
+                  🎙️ Voice Consultation
                 </Link>
               </div>
             </div>

@@ -1615,9 +1615,14 @@ export default function DoctorDashboard() {
                     </p>
                   </div>
 
-                  <span className="rounded-full bg-teal-50 border border-teal-200 px-3 py-1 text-xs font-medium text-teal-800">
-                    Official Product Label Reference
+                  <span className="rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-xs font-medium text-amber-800">
+                    Rule-Based Prototype Checker
                   </span>
+                </div>
+
+                {/* Honest Clinical Scope Notice */}
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed">
+                  <strong>Clinical Scope Notice:</strong> Preliminary rule-based screening for prototype demonstration. Absence of an alert does <em>NOT</em> imply absence of drug-drug interactions or complete safety. Licensed clinician review against official CDSCO / Indian Pharmacopoeia formulary is required before prescribing.
                 </div>
 
                 {/* Add / Check Medication Input */}

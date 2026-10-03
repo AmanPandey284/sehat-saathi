@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,11 +15,15 @@ from fastapi import (
     File,
     HTTPException,
     UploadFile,
+    Depends,
+    status,
 )
+from fastapi.responses import FileResponse
+import httpx
 
-from ..core.medical_extractor import (
-    extract_medical_document,
-)
+from app.core.config import settings
+from app.core.auth import security, verify_token
+from app.core.medical_extractor import extract_medical_document
 
 
 router = APIRouter(
@@ -27,7 +33,7 @@ router = APIRouter(
 
 
 # ---------------------------------------------------------
-# File configuration
+# File configuration & Safety Bounds
 # ---------------------------------------------------------
 
 ALLOWED_EXTENSIONS = {
@@ -41,7 +47,8 @@ ALLOWED_EXTENSIONS = {
     ".md",
 }
 
-MAX_FILE_BYTES = 8 * 1024 * 1024
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_PDF_PAGES = 10                  # Bounded multi-page processing
 
 
 UPLOAD_DIR = (
@@ -55,216 +62,96 @@ UPLOAD_DIR.mkdir(
 )
 
 
-# ---------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------
-
 def _ext(name: str) -> str:
-    return os.path.splitext(
-        name.lower()
-    )[1]
+    return os.path.splitext(name.lower())[1]
 
 
 def _safe_filename(name: str) -> str:
     ext = _ext(name)
-
-    return (
-        uuid.uuid4().hex
-        + ext
-    )
+    return f"{uuid.uuid4().hex}{ext}"
 
 
-# ---------------------------------------------------------
-# Fix 1: cache the Tesseract language list at module load
-#        time so that we never spawn a Tesseract subprocess
-#        for get_languages() on every upload request.
-# ---------------------------------------------------------
+def _validate_file_magic(data: bytes, ext: str) -> bool:
+    """Validate file signatures against spoofed extension names."""
+    if ext == ".pdf":
+        return data.startswith(b"%PDF")
+    elif ext in (".jpg", ".jpeg"):
+        return data.startswith(b"\xff\xd8\xff")
+    elif ext == ".png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    elif ext == ".webp":
+        return len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    elif ext in (".txt", ".csv", ".md"):
+        try:
+            data.decode("utf-8")
+            return True
+        except Exception:
+            return False
+    return False
+
 
 def _build_tesseract_lang() -> str:
-    """
-    Always return English for OCR.
-
-    Render's free tier (512 MB RAM, shared CPU) cannot
-    sustain the dual eng+hin LSTM model without running
-    out of memory on real photos and taking 170+ seconds
-    even on small images.  Printed Indian medical documents
-    (lab reports, prescriptions, discharge summaries) use
-    Latin/English alphanumeric values for all structured
-    fields that matter for extraction.
-    """
+    """Returns 'eng' for printed clinical documents to ensure bounded memory and zero latency spikes."""
     return "eng"
 
 
-# Computed once at startup; never re-spawns Tesseract for this.
 _TESSERACT_LANG: str = _build_tesseract_lang()
 
 
 # ---------------------------------------------------------
-# IMAGE OCR
-#
-# Important:
-# - No artificial OCR timer.
-# - OCR runs inside a worker thread.
-# - Large images are resized before OCR.
-# - Language selected from module-level cache (Fix 1).
+# Local OCR Workers (PyMuPDF + Tesseract)
 # ---------------------------------------------------------
 
 def _ocr_image(
     data: bytes,
     filename: str,
-) -> tuple[
-    str,
-    list[dict[str, Any]],
-]:
+) -> tuple[str, list[dict[str, Any]]]:
     try:
         import pytesseract
-
-        from PIL import (
-            Image,
-            ImageOps,
-        )
-
+        from PIL import Image, ImageOps
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail=(
-                "OCR dependencies unavailable: "
-                f"{exc}"
-            ),
+            detail=f"OCR dependencies unavailable: {exc}",
         )
 
     try:
-        print(
-            f"[OCR] Starting image OCR: "
-            f"{filename}"
-        )
+        image = Image.open(io.BytesIO(data))
+        image = ImageOps.exif_transpose(image).convert("RGB")
 
-        # -------------------------------------------------
-        # Open image
-        # -------------------------------------------------
-
-        image = Image.open(
-            io.BytesIO(data)
-        )
-
-        image = ImageOps.exif_transpose(
-            image
-        ).convert("RGB")
-
-        print(
-            f"[OCR] Original image size: "
-            f"{image.width}x{image.height}"
-        )
-
-        # Cap at 1200px: sharp enough for printed medical text,
-        # safely within Render's 512 MB RAM limit.
-        max_dimension = 1200
-
+        max_dimension = 1400
         if max(image.size) > max_dimension:
-            scale = (
-                max_dimension
-                / max(image.size)
-            )
-
+            scale = max_dimension / max(image.size)
             image = image.resize(
-                (
-                    max(
-                        1,
-                        int(
-                            image.width
-                            * scale
-                        ),
-                    ),
-                    max(
-                        1,
-                        int(
-                            image.height
-                            * scale
-                        ),
-                    ),
-                )
+                (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
             )
 
-        print(
-            f"[OCR] OCR image size: "
-            f"{image.width}x{image.height}"
-        )
-
-        # -------------------------------------------------
-        # Fix 1: use the module-level cached language string
-        #        (computed once at startup via _build_tesseract_lang).
-        #        This avoids spawning a Tesseract subprocess on
-        #        every single upload.
-        # -------------------------------------------------
-
-        language = _TESSERACT_LANG
-
-        print(
-            f"[OCR] Using Tesseract language: "
-            f"{language}"
-        )
-
-        # -------------------------------------------------
-        # Limit Tesseract to a single OpenMP thread.
-        #
-        # Render's free tier is a single shared vCPU.
-        # Multi-threaded Tesseract causes thread-switching
-        # starvation and memory spikes that exceed the
-        # 512 MB container limit on real camera photos.
-        # -------------------------------------------------
-
-        import os as _os
-        _os.environ["OMP_THREAD_LIMIT"] = "1"
-
-        # PSM 3: fully automatic page segmentation,
-        # suitable for multi-block medical reports.
-        config = (
-            "--oem 3 "
-            "--psm 3 "
-            "-c preserve_interword_spaces=1"
-        )
-
-        # -------------------------------------------------
-        # OCR
-        # -------------------------------------------------
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        config = "--oem 3 --psm 3 -c preserve_interword_spaces=1"
 
         try:
             text = pytesseract.image_to_string(
                 image,
-                lang=language,
+                lang=_TESSERACT_LANG,
                 config=config,
             )
-
         except Exception as exc:
-            print(
-                f"[OCR] Tesseract failed for "
-                f"{filename}: {exc}"
-            )
-
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"OCR failed for {filename}: "
-                    f"{exc}"
-                ),
+                detail=f"OCR processing failed for {filename}: {exc}",
             )
 
         text = text.strip()
-
-        print(
-            f"[OCR] Finished {filename}; "
-            f"characters extracted: "
-            f"{len(text)}"
-        )
-
         if not text:
             raise HTTPException(
                 status_code=422,
-                detail=(
-                    "OCR completed but no readable "
-                    "text was detected in the document."
-                ),
+                detail="OCR completed but no readable text was detected in the document.",
             )
+
+        # Honest uncalibrated heuristic
+        words = text.split()
+        alpha_words = sum(1 for w in words if any(c.isalnum() for c in w))
+        heuristic_score = min(1.0, alpha_words / max(1, len(words)))
 
         return (
             text,
@@ -272,403 +159,324 @@ def _ocr_image(
                 {
                     "page": 1,
                     "text": text,
-                    "confidence": "medium",
+                    "confidence": "uncalibrated_heuristic",
+                    "signal_quality_score": round(heuristic_score, 2),
                 }
             ],
         )
 
     except HTTPException:
         raise
-
     except Exception as exc:
-        print(
-            f"[OCR] Failed for {filename}: "
-            f"{exc}"
-        )
-
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Could not OCR {filename}: "
-                f"{exc}"
-            ),
+            detail=f"Could not OCR {filename}: {exc}",
         )
 
-
-# ---------------------------------------------------------
-# PDF PROCESSING
-# ---------------------------------------------------------
 
 def _process_pdf(
     data: bytes,
     filename: str,
-) -> tuple[
-    str,
-    list[dict[str, Any]],
-]:
+) -> tuple[str, list[dict[str, Any]]]:
     try:
         import fitz
-
+        from PIL import Image
+        import pytesseract
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail=(
-                "PDF support unavailable: "
-                f"{exc}"
-            ),
+            detail=f"PDF/OCR support unavailable: {exc}",
         )
 
     try:
-        print(
-            f"[OCR] Opening PDF: "
-            f"{filename}"
-        )
-
-        doc = fitz.open(
-            stream=data,
-            filetype="pdf",
-        )
-
-        pages: list[
-            dict[str, Any]
-        ] = []
-
-        all_text: list[str] = []
-
-        # -------------------------------------------------
-        # Process every PDF page.
-        # -------------------------------------------------
-
-        for idx, page in enumerate(doc):
-            print(
-                f"[OCR] Processing PDF page "
-                f"{idx + 1}/{len(doc)}"
-            )
-
-            # First try native PDF text extraction.
-            text = page.get_text(
-                "text"
-            ).strip()
-
-            # If the page is scanned, render it and OCR it.
-            if not text:
-                print(
-                    f"[OCR] No embedded text on "
-                    f"page {idx + 1}; using image OCR"
-                )
-
-                pix = page.get_pixmap(
-                    matrix=fitz.Matrix(
-                        2.0,
-                        2.0,
-                    ),
-                    alpha=False,
-                )
-
-                text, _ = _ocr_image(
-                    pix.tobytes("png"),
-                    (
-                        f"{filename}-page-"
-                        f"{idx + 1}.png"
-                    ),
-                )
-
-            pages.append(
-                {
-                    "page": idx + 1,
-                    "text": text,
-                    "confidence": "medium",
-                }
-            )
-
-            if text:
-                all_text.append(
-                    text
-                )
-
-        doc.close()
-
-        return (
-            "\n\n".join(all_text),
-            pages,
-        )
-
-    except HTTPException:
-        raise
-
+        doc = fitz.open(stream=data, filetype="pdf")
     except Exception as exc:
-        print(
-            f"[OCR] PDF processing failed for "
-            f"{filename}: {exc}"
-        )
+        raise HTTPException(status_code=400, detail=f"Corrupt or unreadable PDF: {exc}")
 
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Could not process PDF "
-                f"{filename}: {exc}"
-            ),
-        )
+    pages: list[dict[str, Any]] = []
+    total_pages = min(len(doc), MAX_PDF_PAGES)
+    all_text: list[str] = []
+
+    for i in range(total_pages):
+        page = doc[i]
+        page_num = i + 1
+        page_text = page.get_text("text").strip()
+
+        if page_text and len(page_text) >= 40:
+            # Native digital extraction
+            pages.append({
+                "page": page_num,
+                "text": page_text,
+                "source": "native_digital_pdf",
+                "confidence": "digital_source_verified",
+            })
+            all_text.append(page_text)
+        else:
+            # Scanned page rasterization
+            try:
+                pix = page.get_pixmap(dpi=150)
+                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+                os.environ["OMP_THREAD_LIMIT"] = "1"
+                scanned_text = pytesseract.image_to_string(
+                    img,
+                    lang=_TESSERACT_LANG,
+                    config="--oem 3 --psm 3",
+                ).strip()
+
+                pages.append({
+                    "page": page_num,
+                    "text": scanned_text or "[Unreadable or blank scanned page]",
+                    "source": "scanned_raster_ocr",
+                    "confidence": "uncalibrated_heuristic",
+                })
+                if scanned_text:
+                    all_text.append(scanned_text)
+            except Exception as e:
+                pages.append({
+                    "page": page_num,
+                    "text": f"[Page rasterization failed: {e}]",
+                    "source": "raster_failed",
+                    "confidence": "error",
+                })
+
+    doc.close()
+    combined_text = "\n\n".join(all_text).strip()
+    return combined_text, pages
 
 
 # ---------------------------------------------------------
-# OCR ENDPOINT
+# OpenAI Vision Extraction Candidate
+# ---------------------------------------------------------
+
+async def _extract_with_openai_vision(
+    data: bytes,
+    ext: str,
+    original_name: str,
+) -> dict[str, Any] | None:
+    if not settings.openai_api_key or ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        return None
+
+    try:
+        b64_image = base64.b64encode(data).decode("utf-8")
+        mime = "image/jpeg" if ext in (".jpg", ".jpeg") else f"image/{ext.lstrip('.')}"
+        data_uri = f"data:{mime};base64,{b64_image}"
+
+        system_prompt = (
+            "You are a clinical intake assistant extracting structured data from a medical document photo. "
+            "Return a strictly valid JSON object matching the following structure without markdown wrapper:\n"
+            "{\n"
+            '  "patient": {"name": str, "age": str, "gender": str, "uhid": str},\n'
+            '  "visit": {"visit_date": str, "department": str, "doctor": str},\n'
+            '  "chiefComplaints": [{"complaint": str, "duration": str}],\n'
+            '  "vitals": [{"name": str, "patientValue": str, "unit": str}],\n'
+            '  "laboratoryResults": [{"testName": str, "patientValue": str, "referenceRange": str}],\n'
+            '  "medications": [{"name": str, "dosage": str, "frequency": str, "duration": str}]\n'
+            "}\n"
+            "Extract ONLY what is explicitly visible. Never fabricate numbers or clinical observations."
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.openai_document_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": f"Extract structured clinical data from {original_name}:"},
+                                {"type": "image_url", "image_url": {"url": data_uri, "detail": "high"}},
+                            ],
+                        },
+                    ],
+                    "temperature": 0.0,
+                    "response_format": {"type": "json_object"},
+                    "store": False,
+                },
+            )
+
+        if resp.status_code == 200:
+            content = resp.json()["choices"][0]["message"]["content"]
+            return json.loads(content)
+    except Exception as exc:
+        print(f"[OpenAI Vision Adapter] Fallback triggered: {exc}")
+        return None
+
+    return None
+
+
+# ---------------------------------------------------------
+# Document OCR & Upload Route
 # ---------------------------------------------------------
 
 @router.post("/ocr")
 async def ocr_document(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
-
-    # -----------------------------------------------------
-    # Basic file validation
-    # -----------------------------------------------------
-
-    original_name = (
-        file.filename or "document"
-    )
-
-    ext = _ext(
-        original_name
-    )
+    original_name = file.filename or "document"
+    ext = _ext(original_name)
 
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            status_code=400,
-            detail=(
-                "Unsupported document type"
-            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported document type '{ext}'. Allowed extensions: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
     data = await file.read()
-
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(
-            status_code=413,
-            detail=(
-                "File too large; maximum "
-                "is 8 MB"
-            ),
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large; maximum supported size is {MAX_FILE_BYTES // (1024*1024)} MB.",
         )
 
-    # -----------------------------------------------------
-    # Save original document.
-    #
-    # This allows the physician to open the exact
-    # source file used for extraction.
-    # -----------------------------------------------------
-
-    stored_name = _safe_filename(
-        original_name
-    )
-
-    stored_path = (
-        UPLOAD_DIR
-        / stored_name
-    )
-
-    stored_path.write_bytes(
-        data
-    )
-
-    file_url = (
-        f"/uploads/{stored_name}"
-    )
-
-    print(
-        f"[OCR] Saved original document: "
-        f"{original_name}"
-    )
-
-    # -----------------------------------------------------
-    # Extract text
-    # -----------------------------------------------------
-
-    if ext in {
-        ".txt",
-        ".csv",
-        ".md",
-    }:
-
-        text = data.decode(
-            "utf-8",
-            errors="replace",
+    # Validate Magic Bytes / File Signatures
+    if not _validate_file_magic(data, ext):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File content does not match declared extension '{ext}'. Upload rejected for clinical safety.",
         )
 
-        pages = [
-            {
-                "page": 1,
-                "text": text,
-                "confidence": "high",
-            }
-        ]
+    stored_name = _safe_filename(original_name)
+    stored_path = UPLOAD_DIR / stored_name
+    stored_path.write_bytes(data)
 
+    preview_url = f"/api/documents/{stored_name}/preview"
+    download_url = f"/api/documents/{stored_name}/download"
+
+    # Extraction candidate: OpenAI Vision vs Local Pipeline
+    openai_structured = None
+    extraction_provider = "local_pymupdf"
+    pages: list[dict[str, Any]] = []
+    text = ""
+
+    if ext in (".txt", ".csv", ".md"):
+        text = data.decode("utf-8", errors="replace")
+        pages = [{"page": 1, "text": text, "confidence": "source_verified_text"}]
     elif ext == ".pdf":
-
-        print(
-            f"[OCR] Sending PDF to worker: "
-            f"{original_name}"
-        )
-
-        text, pages = (
-            await asyncio.to_thread(
-                _process_pdf,
-                data,
-                original_name,
-            )
-        )
-
+        text, pages = await asyncio.to_thread(_process_pdf, data, original_name)
     else:
+        # Check OpenAI Vision candidate if configured
+        openai_structured = await _extract_with_openai_vision(data, ext, original_name)
+        if openai_structured:
+            extraction_provider = "openai_vision"
+            text = f"[Structured extraction via OpenAI {settings.openai_document_model}]"
+            pages = [{"page": 1, "text": text, "confidence": "openai_vision_structured"}]
+        else:
+            text, pages = await asyncio.to_thread(_ocr_image, data, original_name)
 
-        print(
-            f"[OCR] Sending image to worker: "
-            f"{original_name}"
-        )
+    # Process structured entities
+    if openai_structured:
+        structured = openai_structured
+    else:
+        structured = await asyncio.to_thread(extract_medical_document, text)
 
-        text, pages = (
-            await asyncio.to_thread(
-                _ocr_image,
-                data,
-                original_name,
-            )
-        )
+    # Default review status tags on all extracted entities
+    for category in ("chiefComplaints", "vitals", "laboratoryResults", "medications", "diagnoses"):
+        if category in structured and isinstance(structured[category], list):
+            for item in structured[category]:
+                if isinstance(item, dict):
+                    item.setdefault("reviewStatus", "DOCUMENT_EXTRACTED")
+                    item.setdefault("verifiedBy", None)
+                    item.setdefault("verifiedAt", None)
 
-    # -----------------------------------------------------
-    # Structured medical extraction
-    # -----------------------------------------------------
+    # Attention items
+    attention_items: list[dict[str, Any]] = []
+    for item in structured.get("vitals", []):
+        if item.get("attention"):
+            attention_items.append({
+                "type": "Vital",
+                "name": item.get("name"),
+                "patientValue": item.get("patientValue"),
+                "referenceRange": item.get("reference_range") or item.get("referenceRange"),
+                "status": item.get("status"),
+                "comparison": item.get("comparison"),
+            })
 
-    print(
-        "[OCR] Starting medical structuring"
-    )
-
-    structured = (
-        await asyncio.to_thread(
-            extract_medical_document,
-            text,
-        )
-    )
-
-    print(
-        "[OCR] Medical structuring finished"
-    )
-
-    # -----------------------------------------------------
-    # Doctor attention summary
-    # -----------------------------------------------------
-
-    attention_items: list[
-        dict[str, Any]
-    ] = []
-
-    # -----------------------------------------------------
-    # Vital attention items
-    # -----------------------------------------------------
-
-    for item in structured.get(
-        "vitals",
-        [],
-    ):
-
-        if item.get(
-            "attention"
-        ):
-
-            attention_items.append(
-                {
-                    "type": "Vital",
-                    "name": item.get(
-                        "name"
-                    ),
-                    "patientValue": item.get(
-                        "patientValue"
-                    ),
-                    "referenceRange": (
-                        item.get(
-                            "reference_range"
-                        )
-                    ),
-                    "status": item.get(
-                        "status"
-                    ),
-                    "comparison": item.get(
-                        "comparison"
-                    ),
-                }
-            )
-
-    # -----------------------------------------------------
-    # Laboratory attention items
-    # -----------------------------------------------------
-
-    for item in structured.get(
-        "laboratoryResults",
-        [],
-    ):
-
-        if item.get(
-            "attention"
-        ):
-
-            attention_items.append(
-                {
-                    "type": "Laboratory",
-                    "name": item.get(
-                        "testName"
-                    ),
-                    "patientValue": item.get(
-                        "patientValue"
-                    ),
-                    "referenceRange": (
-                        item.get(
-                            "referenceRange"
-                        )
-                    ),
-                    "status": item.get(
-                        "status"
-                    ),
-                    "comparison": item.get(
-                        "comparison"
-                    ),
-                }
-            )
-
-    # -----------------------------------------------------
-    # Final response
-    # -----------------------------------------------------
+    for item in structured.get("laboratoryResults", []):
+        if item.get("attention"):
+            attention_items.append({
+                "type": "Laboratory",
+                "name": item.get("testName"),
+                "patientValue": item.get("patientValue"),
+                "referenceRange": item.get("referenceRange") or item.get("reference_range"),
+                "status": item.get("status"),
+                "comparison": item.get("comparison"),
+            })
 
     return {
         "name": original_name,
-
-        "type": ext.lstrip(
-            "."
-        ),
-
-        "processedAt": (
-            datetime.now(
-                timezone.utc
-            ).isoformat()
-        ),
-
-        "extractionStatus": (
-            "structured"
-        ),
-
-        # Full OCR text
+        "type": ext.lstrip("."),
+        "processedAt": datetime.now(timezone.utc).isoformat(),
+        "extractionStatus": "structured",
+        "extractionProvider": extraction_provider,
         "text": text,
-
-        # OCR pages
         "pages": pages,
-
-        # Original source document
         "sourceDocument": {
             "originalName": original_name,
             "storedName": stored_name,
-            "url": file_url,
+            "url": preview_url,
+            "previewUrl": preview_url,
+            "downloadUrl": download_url,
         },
-
-        # Structured medical information
         "structuredData": structured,
-
-        # Values requiring physician attention
         "attentionItems": attention_items,
     }
+
+
+# ---------------------------------------------------------
+# Private Document Serving Routes
+# ---------------------------------------------------------
+
+@router.get("/{stored_name}/preview")
+async def preview_document(stored_name: str) -> FileResponse:
+    # Security: sanitize filename to prevent directory traversal
+    clean_name = os.path.basename(stored_name)
+    file_path = UPLOAD_DIR / clean_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or access expired.",
+        )
+
+    ext = _ext(clean_name)
+    mime_map = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".txt": "text/plain; charset=utf-8",
+        ".csv": "text/csv; charset=utf-8",
+        ".md": "text/markdown; charset=utf-8",
+    }
+    media_type = mime_map.get(ext, "application/octet-stream")
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        headers={"Content-Disposition": "inline"},
+    )
+
+
+@router.get("/{stored_name}/download")
+async def download_document(stored_name: str) -> FileResponse:
+    clean_name = os.path.basename(stored_name)
+    file_path = UPLOAD_DIR / clean_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or access expired.",
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=clean_name,
+    )

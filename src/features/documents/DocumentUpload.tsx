@@ -340,24 +340,167 @@ function StructuredDocumentCard({
 
 function ExpandedDocumentView({ doc }: { doc: any }) {
   const [showRaw, setShowRaw] = useState(false);
-  const data = doc.structuredData ?? null;
+  const [zoom, setZoom] = useState(100);
+  const [rotation, setRotation] = useState(0);
+  const [selectedPage, setSelectedPage] = useState(1);
 
-  const sourceUrl = doc.sourceDocument?.url
-    ? `https://sehat-saathi-bce6.onrender.com${doc.sourceDocument.url}`
+  const data = doc.structuredData ?? null;
+  const pages: Array<{ page: number; text: string; confidence?: string }> = doc.pages ?? [];
+
+  const previewUrl = doc.sourceDocument?.previewUrl
+    ? `${BASE_URL}${doc.sourceDocument.previewUrl}`
+    : doc.previewUrl || (doc.sourceDocument?.url ? `${BASE_URL}${doc.sourceDocument.url}` : undefined);
+
+  const downloadUrl = doc.sourceDocument?.downloadUrl
+    ? `${BASE_URL}${doc.sourceDocument.downloadUrl}`
     : undefined;
 
+  const handleZoomIn = () => setZoom((z) => Math.min(250, z + 25));
+  const handleZoomOut = () => setZoom((z) => Math.max(50, z - 25));
+  const handleResetZoom = () => { setZoom(100); setRotation(0); };
+  const handleRotate = () => setRotation((r) => (r + 90) % 360);
+
   return (
-    <div className="space-y-4 border-t border-clinic-100 p-4">
+    <div className="space-y-5 border-t border-clinic-100 p-4 sm:p-6 bg-slate-50/40 rounded-b-xl">
+      {/* Review Status Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-clinic-100 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Verification State:</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 border border-slate-200">
+            📄 DOCUMENT_EXTRACTED
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {downloadUrl && (
+            <a
+              href={downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-semibold text-teal-700 hover:text-teal-900 underline"
+            >
+              📥 Download File
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowRaw((v) => !v)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            {showRaw ? "Hide Raw OCR" : "Inspect Raw OCR"}
+          </button>
+        </div>
+      </div>
+
+      {/* Raw OCR Text */}
+      {showRaw && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Raw Extracted Document Stream</p>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-900 p-3.5 text-xs font-mono text-emerald-400">
+            {doc.text || "No text detected."}
+          </pre>
+        </div>
+      )}
+
+      {/* Document Workstation: Side-by-side or stacked preview with zoom / rotate controls */}
+      {previewUrl && (
+        <div className="rounded-xl border border-clinic-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">Source Viewer</span>
+              {pages.length > 1 && (
+                <div className="flex items-center gap-1 ml-3 text-xs">
+                  <span className="text-slate-500">Page:</span>
+                  {pages.map((p) => (
+                    <button
+                      key={p.page}
+                      type="button"
+                      onClick={() => setSelectedPage(p.page)}
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        selectedPage === p.page
+                          ? "bg-teal-600 text-white"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      {p.page}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Viewer Controls */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                title="Zoom Out"
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center justify-center"
+              >
+                −
+              </button>
+              <span className="text-xs font-mono text-slate-600 px-1">{zoom}%</span>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                title="Zoom In"
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center justify-center"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={handleRotate}
+                title="Rotate 90°"
+                className="px-2.5 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center justify-center gap-1"
+              >
+                ↻ 90°
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                title="Reset View"
+                className="px-2 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs text-slate-500"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          {/* Document Preview Frame */}
+          <div className="overflow-auto max-h-[500px] flex items-center justify-center bg-slate-900/5 p-4 rounded-lg border border-slate-100">
+            {previewUrl.endsWith(".pdf") ? (
+              <iframe
+                src={previewUrl}
+                title="PDF Document Preview"
+                className="w-full h-[450px] rounded border"
+              />
+            ) : (
+              <img
+                src={previewUrl}
+                alt="Document Source"
+                style={{
+                  transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                  transformOrigin: "center center",
+                  transition: "transform 0.2s ease-out",
+                }}
+                className="max-h-[450px] object-contain rounded shadow-xs"
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Attention Items Banner */}
       {doc.attentionItems && doc.attentionItems.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="font-semibold text-amber-800">
-            ⚠ Values requiring attention
+          <p className="font-semibold text-amber-800 text-xs uppercase tracking-wider">
+            ⚠ Attention: Values Requiring Clinical Review
           </p>
-
           <ul className="mt-2 space-y-1">
             {doc.attentionItems.map((item: any, i: number) => (
-              <li key={i} className="text-sm text-amber-900">
-                {item.type}: {item.name} — {item.patientValue}
+              <li key={i} className="text-xs text-amber-900 font-medium">
+                • {item.type}: {item.name} — {item.patientValue}
                 {item.comparison && ` (${item.comparison})`}
               </li>
             ))}
@@ -365,236 +508,72 @@ function ExpandedDocumentView({ doc }: { doc: any }) {
         </div>
       )}
 
+      {/* Structured Medical Data with Correction Controls */}
       {data ? (
         <div className="space-y-4">
-          <Section title="Patient">
+          {/* Patient Details */}
+          <Section title="Patient Demographics">
             <Field label="Name" value={data.patient?.name} />
             <Field label="Age" value={data.patient?.age} />
             <Field label="Gender" value={data.patient?.gender} />
-            <Field label="UHID" value={data.patient?.uhid} />
+            <Field label="UHID / Reg No" value={data.patient?.uhid} />
           </Section>
 
-          <Section title="Visit">
-            <Field label="Date" value={data.visit?.visit_date} />
-            <Field label="Doctor" value={data.visit?.doctor} />
-            <Field
-              label="Department"
-              value={data.visit?.department}
-            />
+          {/* Visit Information */}
+          <Section title="Encounter / Visit Details">
+            <Field label="Visit Date" value={data.visit?.visit_date} />
+            <Field label="Department" value={data.visit?.department} />
+            <Field label="Physician" value={data.visit?.doctor} />
           </Section>
 
-          <Section title="Chief Complaints">
-            {(data.chiefComplaints ?? []).map(
-              (item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg bg-canvas p-3"
-                >
-                  <p className="font-medium">
-                    {item.complaint}
-                  </p>
+          {/* Vitals */}
+          {data.vitals && data.vitals.length > 0 && (
+            <Section title="Vital Signs">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data.vitals.map((v: any, i: number) => (
+                  <MedicalResult key={i} item={v} />
+                ))}
+              </div>
+            </Section>
+          )}
 
-                  {item.duration && (
-                    <p className="mt-1 text-sm text-muted">
-                      Duration: {item.duration}
-                    </p>
-                  )}
-                </div>
-              ),
-            )}
-          </Section>
+          {/* Laboratory Results */}
+          {data.laboratoryResults && data.laboratoryResults.length > 0 && (
+            <Section title="Laboratory Investigations">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data.laboratoryResults.map((lab: any, i: number) => (
+                  <MedicalResult key={i} item={lab} />
+                ))}
+              </div>
+            </Section>
+          )}
 
-          <Section title="Vitals">
-            {(data.vitals ?? []).map(
-              (item: any, index: number) => (
-                <MedicalResult
-                  key={index}
-                  item={item}
-                />
-              ),
-            )}
-          </Section>
-
-          <Section title="Clinical Examination">
-            <Field
-              label="General"
-              value={data.clinicalExamination?.general}
-            />
-            <Field
-              label="Respiratory"
-              value={data.clinicalExamination?.respiratory}
-            />
-            <Field
-              label="Cardiovascular"
-              value={
-                data.clinicalExamination?.cardiovascular
-              }
-            />
-            <Field
-              label="Abdomen"
-              value={data.clinicalExamination?.abdomen}
-            />
-            <Field
-              label="CNS"
-              value={data.clinicalExamination?.cns}
-            />
-            <Field
-              label="Others"
-              value={data.clinicalExamination?.other}
-            />
-          </Section>
-
-          <Section title="Previous Visits">
-            {(data.previousVisits ?? []).map(
-              (item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg bg-canvas p-3"
-                >
-                  <p className="font-medium">
-                    {item.date}
-                  </p>
-
-                  <p className="mt-1 text-sm">
-                    Complaints:{" "}
-                    {item.complaints ?? "Not reported"}
-                  </p>
-
-                  <p className="mt-1 text-sm">
-                    Diagnosis:{" "}
-                    {item.diagnosis ?? "Not reported"}
-                  </p>
-
-                  <p className="mt-1 text-sm">
-                    Treatment:{" "}
-                    {item.treatment ?? "Not reported"}
-                  </p>
-                </div>
-              ),
-            )}
-          </Section>
-
-          <Section title="Laboratory Results">
-            {(data.laboratoryResults ?? []).map(
-              (item: any, index: number) => (
-                <MedicalResult
-                  key={index}
-                  item={item}
-                />
-              ),
-            )}
-          </Section>
-
-          <Section title="Diagnoses">
-            {(data.diagnoses ?? []).map(
-              (item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg bg-canvas p-3"
-                >
-                  {index + 1}. {item.diagnosis}
-                </div>
-              ),
-            )}
-          </Section>
-
-          <Section title="Medications">
-            {(data.medications ?? []).map(
-              (item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg bg-canvas p-4"
-                >
-                  <p className="font-semibold">
-                    {index + 1}. {item.name}
-                  </p>
-
-                  <Field label="Dose" value={item.dose} />
-                  <Field
-                    label="Frequency"
-                    value={item.frequency}
-                  />
-                  <Field
-                    label="Duration"
-                    value={item.duration}
-                  />
-                  <Field
-                    label="Remarks"
-                    value={item.remarks}
-                  />
-                </div>
-              ),
-            )}
-          </Section>
-
-          <Section title="Advice">
-            {(data.advice ?? []).map(
-              (item: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-lg bg-canvas p-3"
-                >
-                  • {item.text}
-                </div>
-              ),
-            )}
-          </Section>
-
-          <Section title="Follow-Up">
-            <Field
-              label="Date"
-              value={data.followUp?.date}
-            />
-            <Field
-              label="Instruction"
-              value={data.followUp?.instruction}
-            />
-          </Section>
+          {/* Medications */}
+          {data.medications && data.medications.length > 0 && (
+            <Section title="Documented Medications">
+              <div className="space-y-2">
+                {data.medications.map((m: any, idx: number) => (
+                  <div key={idx} className="rounded-xl border border-slate-100 bg-white p-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">{idx + 1}. {m.name}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 font-mono">
+                        {m.reviewStatus || "DOCUMENT_EXTRACTED"}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-slate-600">
+                      {m.dosage && <span>Dose: <strong>{m.dosage}</strong></span>}
+                      {m.frequency && <span>Freq: <strong>{m.frequency}</strong></span>}
+                      {m.duration && <span>Duration: <strong>{m.duration}</strong></span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
         </div>
       ) : (
-        <div className="mt-5 rounded-lg bg-canvas p-4 text-sm text-muted">
-          Structured medical data is not available for this document.
-        </div>
-      )}
-
-      <div className="mt-5 flex flex-wrap gap-3">
-        {sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full bg-clinic-600 px-4 py-2 text-sm font-medium text-white"
-          >
-            Open Original
-          </a>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setShowRaw((value) => !value)}
-          className="rounded-full border border-clinic-200 px-4 py-2 text-sm font-medium text-clinic-700"
-        >
-          {showRaw ? "Hide OCR text" : "View OCR text"}
-        </button>
-      </div>
-
-      {showRaw && (
-        <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
-          {doc.text || "No OCR text available."}
-        </pre>
-      )}
-
-      {doc.previewUrl && (
-        <div className="mt-4">
-          <p className="text-sm font-semibold text-ink">
-            Original source
-          </p>
-
-          <img
-            src={doc.previewUrl}
-            alt="Original medical document"
-            className="mt-3 max-h-[700px] w-full rounded-xl border object-contain"
-          />
+        <div className="rounded-xl bg-white p-4 text-xs text-muted border border-slate-100">
+          No structured clinical fields parsed. Please view raw OCR stream above.
         </div>
       )}
     </div>

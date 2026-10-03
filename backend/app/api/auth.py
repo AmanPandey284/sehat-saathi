@@ -8,6 +8,8 @@ from app.core.auth import (
     authenticate_doctor,
     create_token,
     get_current_user,
+    require_admin,
+    get_doctor_by_id,
     send_otp_challenge,
     verify_otp_challenge,
     register_doctor_application,
@@ -22,11 +24,44 @@ router = APIRouter(
 
 
 # ---------------------------------------------------------
+# Session Check / User Identity (/api/auth/me)
+# ---------------------------------------------------------
+
+@router.get("/me")
+def get_me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    user_id = user.get("sub", "")
+    role = user.get("role", "patient")
+    doc = get_doctor_by_id(user_id) if role in ("doctor", "admin") else None
+
+    if doc:
+        return {
+            "id": doc["id"],
+            "name": doc.get("name", "Physician"),
+            "email": doc["email"],
+            "role": doc.get("role", "doctor"),
+            "doctor_status": doc.get("status", "approved"),
+            "registration_id": doc.get("registration_id", ""),
+            "medical_system": doc.get("medical_system", "Allopathy"),
+            "specialty": doc.get("specialty", ""),
+            "council_name": doc.get("council_name", ""),
+        }
+
+    return {
+        "id": user_id,
+        "name": user.get("name", "Patient"),
+        "email": user_id if "@" in user_id else f"{user_id}@mobile.auth",
+        "role": role,
+        "doctor_status": None,
+        "registration_id": "",
+    }
+
+
+# ---------------------------------------------------------
 # Patient OTP Endpoints
 # ---------------------------------------------------------
 
 class SendOtpRequest(BaseModel):
-    recipient: str = Field(min_length=3, description="Mobile number (10 digits) or Email address")
+    recipient: str = Field(min_length=3, description="Email address or mobile identifier")
     channel: str = Field(default="email", description="'email' or 'sms'")
     purpose: str = Field(default="intake", description="'intake' or 'login'")
 
@@ -37,6 +72,15 @@ class VerifyOtpRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
 
+class PatientLegacySendRequest(BaseModel):
+    mobile: str = Field(min_length=10, max_length=10)
+
+
+class PatientLegacyVerifyRequest(BaseModel):
+    mobile: str = Field(min_length=10, max_length=10)
+    otp: str = Field(min_length=6, max_length=6)
+
+
 @router.post("/otp/send")
 async def send_otp(request: SendOtpRequest) -> dict[str, Any]:
     res = await send_otp_challenge(
@@ -45,9 +89,14 @@ async def send_otp(request: SendOtpRequest) -> dict[str, Any]:
         purpose=request.purpose,
     )
     if not res.get("ok"):
+        status_code = (
+            status.HTTP_429_TOO_MANY_REQUESTS
+            if res.get("delivery_mode") == "rate_limited"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=res.get("error", "Rate limit exceeded. Please wait."),
+            status_code=status_code,
+            detail=res.get("error", "Failed to dispatch verification code."),
         )
     return res
 
@@ -65,6 +114,57 @@ def verify_otp(request: VerifyOtpRequest) -> dict[str, Any]:
             detail=res.get("error", "OTP verification failed."),
         )
     return res
+
+
+# Legacy client route aliases
+@router.post("/patient/send-otp")
+async def patient_legacy_send_otp(req: PatientLegacySendRequest) -> dict[str, Any]:
+    res = await send_otp_challenge(recipient=req.mobile, channel="email", purpose="login")
+    if not res.get("ok"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS if res.get("delivery_mode") == "rate_limited" else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=res.get("error", "Failed to send OTP"),
+        )
+    return {
+        "status": "success",
+        "message": res.get("message"),
+        "challenge_id": res.get("challenge_id"),
+        "demo_otp": res.get("dev_code"),
+        "expires_in_seconds": res.get("expires_in_seconds"),
+    }
+
+
+@router.post("/patient/verify-otp")
+def patient_legacy_verify_otp(req: PatientLegacyVerifyRequest) -> dict[str, Any]:
+    # Search for active challenge by recipient
+    from app.core.auth import OTP_CHALLENGES
+    challenge_id = None
+    for cid, r in OTP_CHALLENGES.items():
+        if r["recipient"] == req.mobile.strip().lower():
+            challenge_id = cid
+            break
+
+    if not challenge_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active OTP challenge for this mobile number.",
+        )
+
+    res = verify_otp_challenge(challenge_id=challenge_id, recipient=req.mobile, code=req.otp)
+    if not res.get("ok"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=res.get("error", "OTP verification failed."),
+        )
+    return {
+        "status": "success",
+        "token": res.get("session_token"),
+        "user": {
+            "id": req.mobile,
+            "role": "patient",
+            "mobile": req.mobile,
+        },
+    }
 
 
 # ---------------------------------------------------------
@@ -93,7 +193,6 @@ class DoctorVerifyActionRequest(BaseModel):
     doctor_id: str
     action: str = Field(description="'approve', 'reject', or 'needs_correction'")
     reason: str = Field(default="")
-    reviewer: str = Field(default="Clinical Administrator")
 
 
 @router.post("/doctor/login")
@@ -118,14 +217,14 @@ def doctor_login(request: DoctorLoginRequest) -> dict[str, Any]:
 
     token = create_token(
         user_id=doctor["id"],
-        role="doctor",
+        role=doctor.get("role", "doctor"),
         extra={"doctor_status": doctor["status"], "name": doctor["name"]},
     )
 
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {k: v for k, v in doctor.items() if k != "password"},
+        "user": {k: v for k, v in doctor.items() if k != "password_hash"},
     }
 
 
@@ -145,30 +244,31 @@ def doctor_register(request: DoctorRegisterRequest) -> dict[str, Any]:
     return {
         "ok": True,
         "message": "Physician application submitted successfully. Application is pending administrator verification.",
-        "application": {k: v for k, v in new_doc.items() if k != "password"},
+        "application": new_doc,
     }
 
 
 @router.get("/doctor/applications")
-def get_doctor_applications(user: dict[str, Any] = Depends(get_current_user)) -> list[dict[str, Any]]:
-    # In production, check user["role"] == "admin" or privileged doctor
+def get_doctor_applications(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    """Strictly gated behind Administrator authorization."""
     return list_doctor_applications()
 
 
 @router.post("/doctor/verify")
 def verify_doctor(
     request: DoctorVerifyActionRequest,
-    user: dict[str, Any] = Depends(get_current_user),
+    admin: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
-    reviewer_name = user.get("name") or request.reviewer
+    """Strictly gated behind Administrator authorization with audit trail."""
+    reviewer_id = admin.get("sub", "admin")
     updated = verify_doctor_application(
         doctor_id=request.doctor_id,
         action=request.action,
         reason=request.reason,
-        reviewer=reviewer_name,
+        reviewer_id=reviewer_id,
     )
     return {
         "ok": True,
-        "message": f"Physician application {request.action}ed.",
+        "message": f"Physician application {request.action}ed by {reviewer_id}.",
         "doctor": updated,
     }

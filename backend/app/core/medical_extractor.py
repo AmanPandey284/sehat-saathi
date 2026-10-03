@@ -306,25 +306,18 @@ TEST_PATTERN = re.compile(
 
 
 def normalize_lab_value(test: str, value: str) -> str:
+    """Clean lab value whitespace and trailing punctuation without rewriting numbers or guessing values.
+    Original numeric values and units must remain immutable evidence.
+    """
     value = clean(value) or value
-    if test == "Platelet Count" and re.fullmatch(r"15\s*-\s*45", value):
-        return "1.5-4.5 lakh/µL"
-    if test == "CRP":
-        if value == "<60":
-            return "<6.0 mg/L"
-        if re.fullmatch(r"[‘']?A2mg/L", value, flags=re.I):
-            return "4.2 mg/L"
-    if test == "Serum Lipase":
-        if re.fullmatch(r"B4\s*U/L", value, flags=re.I):
-            return "54 U/L"
-        if re.fullmatch(r"4B\s*U/L", value, flags=re.I):
-            return "48 U/L"
-        if value == "73-60":
-            return "13-60"
-    value = value.replace("/ul", "/µL").replace("/l", "/µL")
-    value = value.replace("mg/l.", "mg/L").replace("mg/l", "mg/L")
-    value = value.replace("U/L.", "U/L")
+    # Only remove trailing punctuation like 'mg/L.' or 'U/L.'
+    value = re.sub(r'([A-Za-z/µ]+)\.+$', r'\1', value)
+    value = re.sub(r'\s+([/µ])', r'\1', value)
+    # Standardize common unit case without modifying values or changing units (/l != /µL)
+    value = re.sub(r'(?i)\bmg/l\b', 'mg/L', value)
+    value = re.sub(r'(?i)\bu/l\b', 'U/L', value)
     return value
+
 
 
 def extract_lab_results(lines: list[str], gender: str | None) -> list[dict[str, Any]]:
@@ -362,15 +355,18 @@ def extract_lab_results(lines: list[str], gender: str | None) -> list[dict[str, 
                     break
 
         candidates = [normalize_lab_value(test, c) for c in candidates if c]
-        reference = next((c for c in candidates if is_reference(c)), None)
-        values = [c for c in candidates if not is_reference(c)]
+        if len(candidates) == 1:
+            current = candidates[0]
+            reference = None
+            previous = None
+        else:
+            reference = next((c for c in candidates if is_reference(c)), None)
+            values = [c for c in candidates if c != reference]
+            if test == "Chest X-Ray":
+                values = [c for c in values if c not in {"2", "2."}]
+            current = values[0] if values else None
+            previous = values[1] if len(values) > 1 else None
 
-        if test == "Chest X-Ray":
-            # The source table has current result | previous result.
-            values = [c for c in values if c not in {"2", "2."}]
-
-        current = values[0] if values else None
-        previous = values[1] if len(values) > 1 else None
         if current is None:
             continue
 

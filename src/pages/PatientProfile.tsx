@@ -24,7 +24,7 @@ export default function PatientProfile() {
   const [guardianPhone, setGuardianPhone] = useState('');
   const [abhaNumber, setAbhaNumber] = useState('');
   const [abhaAddress, setAbhaAddress] = useState('');
-  const [abdmConsent, setAbdmConsent] = useState(true);
+  const [abdmConsent, setAbdmConsent] = useState(false);
   const [error, setError] = useState('');
 
   const formatAbhaInput = (val: string) => {
@@ -278,6 +278,11 @@ export default function PatientProfile() {
                       placeholder="14-3456-7890-1234"
                       className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-4 py-2.5 text-sm font-mono tracking-wide text-ink focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
                     />
+                    {abhaNumber && (
+                      <p className="mt-1 text-[10px] text-amber-700 font-medium">
+                        ⚠ {language === 'hi' ? 'स्व-घोषित (असत्यापित) · आधिकारिक सत्यापन हेतु NHA सैंडबॉक्स क्रेडेंशियल्स आवश्यक हैं।' : 'Self-Reported (Unverified) · Official verification requires active NHA Sandbox gateway.'}
+                      </p>
+                    )}
                   </div>
 
                   <div>

@@ -36,3 +36,7 @@ Thumbs.db
 
 # Scratch / temporary research files
 scratch/
+
+# Runtime uploads & local database
+backend/uploads/
+data/
